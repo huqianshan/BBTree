@@ -66,7 +66,12 @@ void Node::SetPageId(page_id_t page_id) { page_id_ = page_id; }
  * Helper methods to set lsn
  */
 // void Node::SetLSN(lsn_t lsn) { lsn_ = lsn; }
-
+/*
+ * helper function
+ * binary search for a key and return the index (array_ offset)
+ * return the index that is the last `i` that key >= array_[i].first
+ * @attenion different from leafnode: the first key is not used
+ */
 int InnerNode::KeyIndex(const KeyType &key) const {
   int size = GetSize();
   if (size == 1 || key < array_[1].first) return 0;
@@ -76,15 +81,14 @@ int InnerNode::KeyIndex(const KeyType &key) const {
   int left = 1;
   while (left < right - 1) {
     int mid = (left + right) / 2;
-    int compare_result = key - array_[mid].first;
 
-    if (compare_result <= -1) {
+    if (key < array_[mid].first) {
       right = mid;
     }
-    if (compare_result >= 1) {
+    if (key > array_[mid].first) {
       left = mid;
     }
-    if (compare_result == 0) {
+    if (key == array_[mid].first) {
       return mid;
     }
   }
@@ -132,16 +136,18 @@ void InnerNode::Init(page_id_t page_id, page_id_t parent_id, int max_size) {
 int InnerNode::InsertNodeAfter(const ValueType &old_value,
                                const KeyType &new_key,
                                const ValueType &new_value) {
-  // int index = ValueIndex(old_value);
+  // 1. first find the index for old_value,which is just after the old_value
+  int index = ValueIndex(old_value) + 1;
   // InsertAt(index + 1, new_key, new_value);
-  int len = GetSize();
-  int index = 0;
-  for (int i = 0; i < len; i++) {
-    if (array_[i].second == old_value) {
-      index = i;
-    }
-  }
-  for (int i = len - 1; i >= index; --i) {
+  /*  int len = GetSize();
+   int index = 0;
+   for (int i = 0; i < len; i++) {
+     if (array_[i].second == old_value) {
+       index = i;
+     }
+   } */
+  // 2.then migrate the slots to a latter position
+  for (int i = GetSize() - 1; i >= index; --i) {
     array_[i + 1] = array_[i];
   }
   array_[index] = {new_key, new_value};
@@ -164,18 +170,18 @@ void InnerNode::MoveHalfTo(InnerNode *recipient,
   // recipient->CopyNFrom(array_ + half_size, raw_size - half_size,
   //  buffer_pool_manager);
 
-  PairType *items = array_ + half_size;
-  for (int i = 0; i < raw_size - half_size; i++) {
+  PairType *items = array_;
+  for (int i = half_size; i < raw_size; i++) {
     // CopyLastFrom(items[i], buffer_pool_manager);
     // 1. set the paraent of items'child  to me
     page_id_t child_page_id = items[i].second;
     Page *child_page_ptr = buffer_pool_manager->FetchPage(child_page_id);
     Node *node = reinterpret_cast<Node *>(child_page_ptr->GetData());
-    node->SetParentPageId(this->GetPageId());
+    node->SetParentPageId(recipient->GetPageId());
     // 2. flush to disk
     buffer_pool_manager->UnpinPage(child_page_id, true);
     // 3. copy n item
-    this->array_[i] = items[i];
+    recipient->InsertAt(recipient->GetSize(), items[i].first, items[i].second);
   }
   SetSize(half_size);
 };
@@ -189,20 +195,22 @@ void InnerNode::MoveHalfTo(InnerNode *recipient,
  */
 void InnerNode::MoveAllTo(InnerNode *recipient, const KeyType &middle_key,
                           ParallelBufferPoolManager *buffer_pool_manager) {
-  int size = GetSize();
+  int move_size = GetSize();
+  int begin = recipient->GetSize();
+  this->array_[0].first = middle_key;
+  for (int i = 0; i < move_size; i++) {
+    recipient->array_[begin + i] = this->array_[i];
 
-  page_id_t child_page_id = array_[0].second;
-  Page *child_page_ptr = buffer_pool_manager->FetchPage(child_page_id);
-  Node *node = reinterpret_cast<Node *>(child_page_ptr->GetData());
-  node->SetParentPageId(this->GetPageId());
-  // 2. flush to disk
-  buffer_pool_manager->UnpinPage(child_page_id, true);
-  // 3. add to the recip-> last
-  recipient->array_[recipient->GetSize()] = {middle_key, child_page_id};
-  recipient->IncreaseSize(1);
-  // 4. copy other slots
-  recipient->CopyNFrom(array_ + 1, size - 1, buffer_pool_manager);
-  SetSize(0);
+    page_id_t child_page_id = this->array_[i].second;
+    Page *child_page_ptr = buffer_pool_manager->FetchPage(child_page_id);
+    Node *child_node = reinterpret_cast<Node *>(child_page_ptr->GetData());
+
+    child_node->SetParentPageId(recipient->GetPageId());
+    buffer_pool_manager->UnpinPage(this->array_[i].second, true);
+  }
+
+  this->SetSize(0);
+  recipient->IncreaseSize(move_size);
 };
 
 /*
@@ -263,6 +271,18 @@ void InnerNode::CopyNFrom(PairType *items, int size,
                           ParallelBufferPoolManager *buffer_pool_manager) {
   return;
 };
+
+void InnerNode::InsertAt(int index, const KeyType &new_key,
+                         const ValueType &new_value) {
+  int size = GetSize();
+
+  for (int i = size - 1; i >= index; --i) {
+    array_[i + 1] = array_[i];
+  }
+  array_[index] = {new_key, new_value};
+
+  IncreaseSize(1);
+}
 
 void InnerNode::Remove(int index) {
   int size = GetSize();
@@ -374,9 +394,10 @@ void LeafNode::MoveHalfTo(LeafNode *recipient) {
   int size = GetSize();
   int half = size / 2;
   // memcpy(recipient->array_)
-  int begin = recipient->GetSize();
-  for (int i = half; i < size; ++i) {
-    recipient->InsertAt(begin, array_[i].first, array_[i].second);
+  int begin = size - half;
+  for (int i = begin; i < size; ++i) {
+    recipient->InsertAt(recipient->GetSize(), array_[i].first,
+                        array_[i].second);
   }
   IncreaseSize(-half);
 }
@@ -387,11 +408,11 @@ void LeafNode::MoveHalfTo(LeafNode *recipient) {
 void LeafNode::MoveAllTo(LeafNode *recipient) {
   // recipient->SetNextPageId(GetNextPageId());
   recipient->next_page_id_ = this->next_page_id_;
-  int size = GetSize();
+  int move_size = GetSize();
   // memcpy(recipient->array_)
   int begin = recipient->GetSize();
-  for (int i = 0; i < size; ++i) {
-    recipient->InsertAt(begin, array_[i].first, array_[i].second);
+  for (int i = 0; i < move_size; ++i) {
+    recipient->InsertAt(begin + i, array_[i].first, array_[i].second);
   }
   SetSize(0);
 }
@@ -537,7 +558,7 @@ std::string InnerNode::ToString(ParallelBufferPoolManager *bpm) const {
 
 std::string LeafNode::ToString(ParallelBufferPoolManager *bpm) const {
   std::string res;
-  res += "LeafNode[" + std::to_string(GetPageId()) +
+  res += "[LeafNode: " + std::to_string(GetPageId()) +
          " parent: " + std::to_string(GetParentPageId()) +
          " next: " + std::to_string(GetNextPageId());
   std::cout << res << std::endl;
@@ -546,6 +567,7 @@ std::string LeafNode::ToString(ParallelBufferPoolManager *bpm) const {
     res += " " + std::to_string(array_[i].first) + ":" +
            std::to_string(array_[i].second);
   }
+  res += "]";
   bpm->UnpinPage(GetPageId(), false);
   std::cout << res << std::endl;
   return res;
@@ -627,7 +649,13 @@ bool BTree::Remove(const KeyType &key) {
   LeafNode *leaf_ptr = reinterpret_cast<LeafNode *>(leaf_page_ptr->GetData());
 
   // may be unnecessary
-  if (!leaf_ptr->CheckDuplicated(key)) {
+  // if (!leaf_ptr->CheckDuplicated(key)) {
+  //   root_id_latch_.WUnlock();
+  //   return false;
+  // }
+
+  ValueType val;
+  if (leaf_ptr->Lookup(key, &val) == false) {
     root_id_latch_.WUnlock();
     return false;
   }
@@ -685,8 +713,8 @@ bool BTree::Get(const KeyType &key, ValueType *result) {
 
   // release the latch first!
   // page_ptr->RUnlatch();
+  root_id_latch_.RUnlock();
   buffer_pool_manager_->UnpinPage(page_ptr->GetPageId(), false);
-
   if (!ret) {
     return false;
   }
@@ -747,6 +775,7 @@ Page *BTree::FindLeafPage(const KeyType &key, bool leftMost, int mode) {
       page_id = internal_ptr->array_[0].first;
     } else {
       page_id = internal_ptr->Lookup(key);
+      // printf("key:%lu find in page_id%d\n", key, page_id);
     }
   }
 
@@ -776,6 +805,7 @@ bool BTree::InsertIntoLeaf(const KeyType &key, const ValueType &value) {
   // }
 
   int size = leaf_ptr->Insert(key, value);
+
   if (size == leaf_ptr->GetMaxSize()) {
     LeafNode *new_leaf_ptr = Split<LeafNode>(leaf_ptr);
 
@@ -902,7 +932,7 @@ void BTree::InsertIntoParent(Node *old_node, const KeyType &key,
   int new_size = parent_ptr->InsertNodeAfter(old_node->GetPageId(), key,
                                              new_node->GetPageId());
 
-  if (new_size == parent_ptr->GetMaxSize()) {
+  if (new_size >= parent_ptr->GetMaxSize() + 1) {
     InnerNode *new_parent_ptr = Split<InnerNode>(parent_ptr);
 
     parent_ptr->MoveHalfTo(new_parent_ptr, buffer_pool_manager_);
@@ -946,6 +976,9 @@ bool BTree::CoalesceOrRedistribute(N *node) {
 
   int node_index = parent_ptr->ValueIndex(node->GetPageId());
   if (node_index > 0) {
+    // 1. find the left sibling node to borrow a key
+    // if node_index==0 the node is the first son of parents, it has no left
+    // sibling node
     prev_page_id = parent_ptr->array_[node_index - 1].second;
     prev_page_ptr = SafelyGetFrame(
         prev_page_id,
@@ -959,9 +992,9 @@ bool BTree::CoalesceOrRedistribute(N *node) {
       buffer_pool_manager_->UnpinPage(prev_page_id, true);
       return false;
     }
-  }
-
-  if (node_index != parent_ptr->GetSize() - 1) {
+  } else if (node_index != parent_ptr->GetSize() - 1) {
+    // 2. find the right sibling node to borrow a key
+    // also ensures has the right sibliing node
     next_page_id = parent_ptr->array_[node_index + 1].second;
     next_page_ptr = SafelyGetFrame(
         next_page_id,
@@ -982,6 +1015,8 @@ bool BTree::CoalesceOrRedistribute(N *node) {
 
   bool ret = false;
   if (prev_page_id != INVALID_PAGE_ID) {
+    // 3. cannot borrow keys from sibling nodes,
+    // has to merge the node to its left sibling nodes
     ret = Coalesce(&prev_node, &node, &parent_ptr, node_index);
 
     buffer_pool_manager_->UnpinPage(parent_page_id, true);
@@ -996,6 +1031,9 @@ bool BTree::CoalesceOrRedistribute(N *node) {
     return true;
   }
 
+  // 4. cannot borrow keys from sibling nodes,
+  // and the left sibling does not exists
+  // has to merge its right sibling nodes to the node
   // prev_page_id == INVALID_PAGE_ID
   ret = Coalesce(&node, &next_node, &parent_ptr, node_index + 1);
   buffer_pool_manager_->UnpinPage(parent_page_id, true);
@@ -1005,13 +1043,16 @@ bool BTree::CoalesceOrRedistribute(N *node) {
   //   transaction->AddIntoDeletedPageSet(parent_page_id);
   // }
   return false;
-};
+}
 
 /*
  * Move all the key & value pairs from one page to its sibling page, and notify
  * buffer pool manager to delete this page. Parent page must be adjusted to
  * take info of deletion into account. Remember to deal with coalesce or
  * redistribute recursively if necessary.
+ *
+ *  node always the left node and to be delted
+ *
  * Using template N to represent either internal page or leaf page.
  * @param   neighbor_node      sibling page of input "node"
  * @param   node               input from method coalesceOrRedistribute()
@@ -1027,12 +1068,18 @@ bool BTree::Coalesce(N **neighbor_node, N **node, InnerNode **parent,
     LeafNode *op_neighbor_node = reinterpret_cast<LeafNode *>(*neighbor_node);
 
     op_node->MoveAllTo(op_neighbor_node);
+
+    buffer_pool_manager_->UnpinPage(op_node->GetPageId(), true);
+    buffer_pool_manager_->DeletePage(op_node->GetPageId());
   } else {
     InnerNode *op_node = reinterpret_cast<InnerNode *>(*node);
     InnerNode *op_neighbor_node = reinterpret_cast<InnerNode *>(*neighbor_node);
 
     KeyType middle_key = (*parent)->array_[index].first;
     op_node->MoveAllTo(op_neighbor_node, middle_key, buffer_pool_manager_);
+
+    buffer_pool_manager_->UnpinPage(op_node->GetPageId(), true);
+    buffer_pool_manager_->DeletePage(op_node->GetPageId());
   }
 
   (*parent)->Remove(index);  // NOLINT
@@ -1072,8 +1119,9 @@ bool BTree::Redistribute(N *neighbor_node, N *node, int index) {
       op_neighbor_node->MoveLastToFrontOf(op_node);
 
       int node_index = parent_ptr->ValueIndex(op_node->GetPageId());
-      // parent_ptr->SetKeyAt(node_index, op_node->KeyAt(0));
-      parent_ptr->array_[node_index].first = op_neighbor_node->KeyAt(0);
+      // update the parent's key, index ==1, node is on the right of the two
+      // sibling nodes
+      parent_ptr->array_[node_index].first = op_node->KeyAt(0);
     }
   } else {
     InnerNode *op_node = reinterpret_cast<InnerNode *>(node);

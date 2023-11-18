@@ -100,6 +100,7 @@ class InnerNode : public Node {
   int KeyIndex(const KeyType &key) const;
   int ValueIndex(const ValueType &value) const;
   ValueType Lookup(const KeyType &key) const;
+  void InsertAt(int index, const KeyType &new_key, const ValueType &new_value);
 
   void ToGraph(std::ofstream &out, ParallelBufferPoolManager *bpm) const;
   std::string ToString(ParallelBufferPoolManager *bpm) const;

@@ -50,8 +50,8 @@ enum TreeOpType {
   TREE_OP_UPDATE,
   TREE_OP_SCAN,
 };
-const u32 INNER_MAX_SLOT = 6;
-const u32 LEAF_MAX_SLOT = 6;
+const u32 INNER_MAX_SLOT = 3;
+const u32 LEAF_MAX_SLOT = 3;
 // the first KV slot is reserved for meta
 const u64 PAGE_HEADER_SIZE = sizeof(KeyType) + sizeof(ValueType);
 // Key的最小值

@@ -1,6 +1,6 @@
-#include <cassert>
-
 #include "buffer.h"
+
+#include <cassert>
 
 namespace BTree {
 
@@ -214,7 +214,7 @@ Page *BufferPoolManager::FetchPage(page_id_t page_id) {
   return ret_page;
 }
 
-bool BufferPoolManager::DeletePgImp(page_id_t page_id) {
+bool BufferPoolManager::DeletePage(page_id_t page_id) {
   // 0.   Make sure you call DeallocatePage!
   // 1.   Search the page table for the requested page (P).
   // 1.   If P does not exist, return true.
@@ -423,10 +423,10 @@ Page *ParallelBufferPoolManager::NewPage(page_id_t *page_id) {
   return ret_page;
 }
 
-bool ParallelBufferPoolManager::DeletePgImp(page_id_t page_id) {
+bool ParallelBufferPoolManager::DeletePage(page_id_t page_id) {
   // Delete page_id from responsible BufferPoolManager
   return dynamic_cast<BufferPoolManager *>(GetBufferPoolManager(page_id))
-      ->DeletePgImp(page_id);
+      ->DeletePage(page_id);
 }
 
 void ParallelBufferPoolManager::FlushAllPgsImp() {

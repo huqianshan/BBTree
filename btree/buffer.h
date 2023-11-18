@@ -148,7 +148,7 @@ class BufferPoolManager {
    * @return false if the page exists but could not be deleted, true if the page
    * didn't exist or deletion succeeded
    */
-  bool DeletePgImp(page_id_t page_id);
+  bool DeletePage(page_id_t page_id);
 
   /**
    * Flushes all the pages in the buffer pool to disk.
@@ -287,7 +287,7 @@ class ParallelBufferPoolManager {
    * @return false if the page exists but could not be deleted, true if the page
    * didn't exist or deletion succeeded
    */
-  bool DeletePgImp(page_id_t page_id);
+  bool DeletePage(page_id_t page_id);
 
   /**
    * Flushes all the pages in the buffer pool to disk.
