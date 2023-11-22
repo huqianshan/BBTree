@@ -5,6 +5,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <string>
+
 // #include "stats.h"
 #include "storage.h"
 
@@ -22,22 +24,19 @@ static void assert_msg(bool expr, const char *msg) {
 
 void DiskManager::write_n_pages(page_id_t page_id, size_t nr_pages,
                                 const char *page_data) {
+  // DEBUG_PRINT("write_n_pages: page_id=%u, nr_pages=%u\n", page_id,
+  // (unsigned)nr_pages);
+  write_count_.fetch_add(1, std::memory_order_relaxed);
   ssize_t len = nr_pages * PAGE_SIZE;
-  ssize_t ret = pwrite(fd, page_data, len, page_id * PAGE_SIZE);
-  assert_msg(ret<0,"write failed\n");
-  //   if (is_run_phase) {
-  //     incre_global_counter(GLOBAL_NR_WRITE, nr_pages);
-  //   }
+  ssize_t ret = pwrite(fd_, page_data, len, page_id * PAGE_SIZE);
+  assert_msg(ret > 0, "write failed\n");
 }
 
 void DiskManager::read_n_pages(page_id_t page_id, size_t nr_pages,
                                char *page_data) {
   ssize_t len = nr_pages * PAGE_SIZE;
-  ssize_t ret = pread(fd, page_data, len, page_id * PAGE_SIZE);
-  assert_msg(ret <= 0, "read failed\n");
-  //   if (is_run_phase) {
-  //     incre_global_counter(GLOBAL_NR_READ, nr_pages);
-  //   }
+  ssize_t ret = pread(fd_, page_data, len, page_id * PAGE_SIZE);
+  assert_msg(ret > 0, "read failed\n");
 }
 
 DiskManager::DiskManager(const char *db_file) {
@@ -45,12 +44,17 @@ DiskManager::DiskManager(const char *db_file) {
 #ifdef DIRECT_IO
   flags |= O_DIRECT;
 #endif
-  fd = open(db_file, flags, S_IRUSR | S_IWUSR);
-  assert_msg(fd > 0, "open");
+  fd_ = open(db_file, flags, S_IRUSR | S_IWUSR);
+  file_name_ = std::string(db_file);
+  assert_msg(fd_ > 0, "open");
+  write_count_.store(0, std::memory_order_relaxed);
 }
 
 DiskManager::~DiskManager() {
-  int ret = close(fd);
+  u64 size = get_file_size();
+  INFO_PRINT("write_count=%8lu PAGES fielsize=%8lu PAGES\n",
+             write_count_.load(), size / PAGE_SIZE);
+  int ret = close(fd_);
   assert_msg(!ret, "close");
 }
 /**
@@ -65,6 +69,13 @@ void DiskManager::write_page(page_id_t page_id, const char *page_data) {
  */
 void DiskManager::read_page(page_id_t page_id, char *page_data) {
   read_n_pages(page_id, 1, page_data);
+}
+
+u64 DiskManager::get_file_size() {
+  struct stat statbuf;
+  int ret = fstat(fd_, &statbuf);
+  assert_msg(ret != -1, "Failed to get file size");
+  return statbuf.st_size;
 }
 
 }  // namespace BTree

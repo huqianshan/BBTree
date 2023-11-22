@@ -1,3 +1,5 @@
+
+
 #include "buffer.h"
 
 #include <cassert>
@@ -101,6 +103,8 @@ BufferPoolManager::BufferPoolManager(size_t pool_size, uint32_t num_instances,
 }
 
 BufferPoolManager::~BufferPoolManager() {
+  PrintBufferPool();
+
   delete[] pages_;
   free(page_data_);
   delete replacer_;
@@ -111,7 +115,7 @@ BufferPoolManager::~BufferPoolManager() {
   VERIFY(!ret);
 }
 
-bool BufferPoolManager::FlushPgImp(page_id_t page_id) {
+bool BufferPoolManager::FlushPage(page_id_t page_id) {
   // Make sure you call DiskManager::WritePage!
   GrabLock();
   if (page_id == INVALID_PAGE_ID ||
@@ -130,12 +134,12 @@ bool BufferPoolManager::FlushPgImp(page_id_t page_id) {
   return true;
 }
 
-// 1. FlushPgImp内部又有lock guard
-void BufferPoolManager::FlushAllPgsImp() {
-  // You can do it!
+// 1. FlushPage内部又有lock guard
+void BufferPoolManager::FlushAllPages() {
   // Lock_guard lk(latch_);
   for (const auto &key : page_table_) {
-    FlushPgImp(key.first);
+    // INFO_PRINT("%p flush page:%4u :%4u\n", this, key.first, key.second);
+    FlushPage(key.first);
   }
 }
 
@@ -158,10 +162,12 @@ Page *BufferPoolManager::NewPage(page_id_t *page_id) {
   page_table_[tmp_page_id] = cur_frame_id;
   ret_page->pin_count_ = 1;
   ret_page->page_id_ = tmp_page_id;
-  ret_page->is_dirty_ = false;
+  ret_page->is_dirty_ = true;
   replacer_->Pin(cur_frame_id);
   ret_page->ResetMemory();
   *page_id = tmp_page_id;
+
+  // DEBUG_PRINT("new page_id:%4u frame_id:%4u\n", tmp_page_id, cur_frame_id);
 
   ReleaseLock();
   return ret_page;
@@ -187,6 +193,7 @@ Page *BufferPoolManager::FetchPage(page_id_t page_id) {
     // need update pin_count and notify the lru replacer;
     ret_page->pin_count_++;
     replacer_->Pin(cur_frame_id);
+    // DEBUG_PRINT("fetch page_id:%4u frame_id:%4u\n", page_id, cur_frame_id);
     ReleaseLock();
     return ret_page;
   }
@@ -207,9 +214,9 @@ Page *BufferPoolManager::FetchPage(page_id_t page_id) {
   ret_page->is_dirty_ = false;
   // NOTE: 此时frame ID是否可能出现在replacer中
   // 有可能。deletePage把frame加入free list时，没有将它从replacer移除
-  // 但获取frame时，会先从free list里取，然后pin，这样就把它从replacer移除了
-  // 所以从replacer Victim中取出的页面都是free list里没有的
-  // replacer_->Pin(cur_frame_id); // no need
+  // 但获取frame时，会先从free list里取，然后需要pin，这样就把它从replacer移除了
+  // 但是从replacer Victim中取出的页面，自然是删除的页面，所以不会出现这种情况
+  replacer_->Pin(ret_page - pages_);
   ReleaseLock();
   return ret_page;
 }
@@ -245,13 +252,18 @@ bool BufferPoolManager::DeletePage(page_id_t page_id) {
   cur_page->pin_count_ = 0;
   cur_page->is_dirty_ = false;
   cur_page->ResetMemory();
-
   free_list_.push_back(cur_frame_id);
+
   SignalForFreeFrame();
   ReleaseLock();
   return true;
 }
 
+/***
+ * @attention unpin don't delete maping in page_table, so it can fetch the
+ * unpinned page in page_table. And the unpin page will be both in page_table
+ * and replacer, even in free_list
+ */
 bool BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty) {
   GrabLock();
 
@@ -264,9 +276,12 @@ bool BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty) {
   frame_id_t cur_frame_id = page_table_[page_id];
   Page *cur_page = pages_ + cur_frame_id;
 
-  if (is_dirty) {  // if page is dirty but is_dirty indicates non-dirty, it also
-                   // should be dirty
-    cur_page->is_dirty_ = is_dirty;
+  // DEBUG_PRINT("unpin page_id:%4u frame_id:%4u\n", page_id, cur_frame_id);
+
+  if (is_dirty) {
+    // if page is dirty but is_dirty indicates non-dirty,
+    // it also should be dirty
+    cur_page->is_dirty_ |= is_dirty;
   }
   // if no one pins the page, return;
   if (cur_page->GetPinCount() <= 0) {
@@ -301,22 +316,29 @@ Page *BufferPoolManager::GrabPageFrame() {
   frame_id_t cur_frame_id = -1;
   while (true) {
     if (!free_list_.empty()) {
+      // 1. first find in free-lists
       cur_frame_id = free_list_.front();
       free_list_.pop_front();
       ret_page = pages_ + cur_frame_id;
+      // DEBUG_PRINT("grab in free lists page_id:%4u frame_id:%4u\n",
+      // ret_page->GetPageId(), cur_frame_id);
     } else if (replacer_->Victim(&cur_frame_id)) {
+      // 2. then find in replacer
       ret_page = pages_ + cur_frame_id;
-      // flush raw page
       if (ret_page->is_dirty_) {
+        // flush raw page
         disk_manager_->write_page(ret_page->GetPageId(), ret_page->GetData());
       }
       // delete old page_id -> frame_id map
       page_table_.erase(ret_page->GetPageId());
+      // DEBUG_PRINT("grab in replacer page_id:%4u frame_id:%4u\n",
+      //             ret_page->GetPageId(), cur_frame_id);
     }
     if (ret_page != nullptr) {
       break;
     }
     // XXX: timed wait?
+    // reset the next page id?
     WaitForFreeFrame();
   }
   return ret_page;
@@ -342,6 +364,14 @@ void BufferPoolManager::WaitForFreeFrame() {
   VERIFY(!ret);
 }
 
+void BufferPoolManager::PrintBufferPool() {
+  INFO_PRINT(
+      "Instance ID:%2u Page table size:%2lu Replacer size: %2lu"
+      " Free list size: %2lu \n",
+      instance_index_, page_table_.size(), replacer_->Size(),
+      free_list_.size());
+}
+
 ParallelBufferPoolManager::ParallelBufferPoolManager(
     size_t num_instances, size_t pool_size, DiskManager *disk_manager) {
   // Allocate and create individual BufferPoolManagerInstances
@@ -357,6 +387,7 @@ ParallelBufferPoolManager::ParallelBufferPoolManager(
 // Update constructor to destruct all BufferPoolManagerInstances and deallocate
 // any associated memory
 ParallelBufferPoolManager::~ParallelBufferPoolManager() {
+  FlushAllPages();
   for (auto &buffer : bpmis_) {
     delete buffer;
   }
@@ -390,10 +421,10 @@ bool ParallelBufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty) {
       ->UnpinPage(page_id, is_dirty);
 }
 
-bool ParallelBufferPoolManager::FlushPgImp(page_id_t page_id) {
+bool ParallelBufferPoolManager::FlushPage(page_id_t page_id) {
   // Flush page_id from responsible BufferPoolManager
   return dynamic_cast<BufferPoolManager *>(GetBufferPoolManager(page_id))
-      ->FlushPgImp(page_id);
+      ->FlushPage(page_id);
 }
 
 Page *ParallelBufferPoolManager::NewPage(page_id_t *page_id) {
@@ -429,11 +460,11 @@ bool ParallelBufferPoolManager::DeletePage(page_id_t page_id) {
       ->DeletePage(page_id);
 }
 
-void ParallelBufferPoolManager::FlushAllPgsImp() {
+void ParallelBufferPoolManager::FlushAllPages() {
   // flush all pages from all BufferPoolManagerInstances
   for (auto &buffer : bpmis_) {
     auto instance = dynamic_cast<BufferPoolManager *>(buffer);
-    instance->FlushAllPgsImp();
+    instance->FlushAllPages();
   }
 }
 

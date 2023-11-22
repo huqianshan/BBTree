@@ -131,7 +131,7 @@ class BufferPoolManager {
    * @return false if the page could not be found in the page table, true
    * otherwise
    */
-  bool FlushPgImp(page_id_t page_id);
+  bool FlushPage(page_id_t page_id);
 
   /**
    * Creates a new page in the buffer pool.
@@ -153,7 +153,7 @@ class BufferPoolManager {
   /**
    * Flushes all the pages in the buffer pool to disk.
    */
-  void FlushAllPgsImp();
+  void FlushAllPages();
 
   /**
    * Allocate a page on disk.∂
@@ -186,6 +186,8 @@ class BufferPoolManager {
 
   void WaitForFreeFrame();
   void SignalForFreeFrame();
+
+  void PrintBufferPool();
 
   /** Number of pages in the buffer pool. */
   const size_t pool_size_;
@@ -271,7 +273,7 @@ class ParallelBufferPoolManager {
    * @return false if the page could not be found in the page table, true
    * otherwise
    */
-  bool FlushPgImp(page_id_t page_id);
+  bool FlushPage(page_id_t page_id);
 
   /**
    * Creates a new page in the buffer pool.
@@ -292,7 +294,7 @@ class ParallelBufferPoolManager {
   /**
    * Flushes all the pages in the buffer pool to disk.
    */
-  void FlushAllPgsImp();
+  void FlushAllPages();
   std::vector<BufferPoolManager *> bpmis_;
   size_t num_instances_;
   std::atomic<size_t> index_;

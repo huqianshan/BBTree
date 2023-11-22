@@ -15,7 +15,7 @@ int main(int argc, char const *argv[]) {
   BTree::BTree *btree = new BTree::BTree(para);
 
   // btree->Insert(key, value);
-  std::vector<BTree::KeyType> keys(14);
+  std::vector<BTree::KeyType> keys(39);
   std::iota(keys.begin(), keys.end(), 0);
   // std::random_device rd;
   // std::mt19937 g(rd());
@@ -67,6 +67,8 @@ int main(int argc, char const *argv[]) {
   /* for (BTree::KeyType begin = 0; begin < 31; begin++) {
     btree->Insert(begin, begin * begin);
   } */
+
+  para->FlushAllPages();
 
   delete para;
   delete disk;

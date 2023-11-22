@@ -20,12 +20,11 @@ class KVRecord {
 
 class Node {
  public:
-  NodeType node_type;  // leaf root interanal
-  // lsn_t lsn_;
+  NodeType node_type;
+  page_id_t page_id_;  // node标识
+  page_id_t parent_page_id_;
   u32 size_;
   u32 max_size_;
-  page_id_t parent_page_id_;
-  page_id_t page_id_;  // node标识
 
   Node() = delete;
   virtual ~Node(){};
@@ -50,11 +49,6 @@ class Node {
   void SetPageId(page_id_t page_id_);
 
   void SetLSN(lsn_t lsn = INVALID_LSN);
-
-  //   virtual bool IsFew() = 0;
-  //   virtual bool IsEmpty() const = 0;
-  //   virtual u32 MaxSlot() const = 0;
-  // virtual std::string ToString() const = 0;
 };
 
 /**
@@ -103,7 +97,7 @@ class InnerNode : public Node {
   void InsertAt(int index, const KeyType &new_key, const ValueType &new_value);
 
   void ToGraph(std::ofstream &out, ParallelBufferPoolManager *bpm) const;
-  std::string ToString(ParallelBufferPoolManager *bpm) const;
+  void ToString(ParallelBufferPoolManager *bpm) const;
 };
 
 /**
@@ -158,14 +152,15 @@ class LeafNode : public Node {
    */
   KeyType check_key_order() const;
 
-  void ToGraph(std::ofstream &out, ParallelBufferPoolManager *bpm) const;
-  std::string ToString(ParallelBufferPoolManager *bpm) const;
+  void ToGraph(std::ofstream &out) const;
+  void ToString() const;
 
  public:
   page_id_t next_page_id_;
   PairType array_[0];
 };
 
+// extern Transaction *transaction;
 class BTree {
  public:
   explicit BTree(ParallelBufferPoolManager *buffer) {
@@ -183,24 +178,30 @@ class BTree {
   bool Get(const KeyType &key, ValueType *result);
   bool Scan(const KeyType &key_begin, const KeyType &key_end,
             std::vector<ValueType> result);
-  // expose for test purpose
-  // ** WARNING: I ADD TWO ADDITIONAL ARGUMENTS IN THIS FUNCTION! **
-  Page *FindLeafPage(const KeyType &key, bool leftMost = false, int mode = 0);
-  bool InsertIntoLeaf(const KeyType &key, const ValueType &value);
+  Page *FindLeafPage(const KeyType &key, Transaction *transaction,
+                     bool leftMost = false, LatchMode mode = LATCH_MODE_READ);
+  bool InsertIntoLeaf(const KeyType &key, const ValueType &value,
+                      LeafNode *leaf_ptr);
   void StartNewTree(const KeyType &key, const ValueType &value);
   template <typename N>
   N *Split(N *node);
   void InsertIntoParent(Node *old_node, const KeyType &key, Node *new_node);
   template <typename N>
-  bool CoalesceOrRedistribute(N *node);
+  bool CoalesceOrRedistribute(N *node, Transaction *transaction);
 
   template <typename N>
-  bool Coalesce(N **neighbor_node, N **node, InnerNode **parent, int index);
+  bool Coalesce(N **neighbor_node, N **node, InnerNode **parent, int index,
+                Transaction *transaction);
 
   template <typename N>
   bool Redistribute(N *neighbor_node, N *node, int index);
 
-  bool AdjustRoot(Node *old_root_node);
+  bool AdjustRoot(Node *old_root_node, Transaction *transaction);
+
+  // concurrent helper
+  void ReleaseLatchQueue(Transaction *transaction, LatchMode mode);
+  bool CheckSafe(Node *tree_ptr, LatchMode mode);
+  void DeletePages(Transaction *transaction);
 
   // helper function
   void SetRootPageId(page_id_t root_page_id);
@@ -211,14 +212,14 @@ class BTree {
   bool IsEmpty() const;
 
   /* Debug Routines for FREE!! */
-  void ToGraph(std::ofstream &out, ParallelBufferPoolManager *bpm) const;
-  void ToString(ParallelBufferPoolManager *bpm) const;
+  void ToGraph(std::ofstream &out) const;
+  void ToString() const;
+  void Draw(std::string path) const;
 
  private:
   page_id_t root_page_id_;
   ReaderWriterLatch root_id_latch_;
   ParallelBufferPoolManager *buffer_pool_manager_;
-  // storage_manager_;
 };
 
 }  // namespace BTree

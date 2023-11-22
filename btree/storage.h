@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+
 #include "config.h"
 
 namespace BTree {
@@ -21,8 +22,15 @@ class DiskManager {
    */
   void read_page(page_id_t page_id, char *page_data);
 
+  /* Get file size */
+  u64 get_file_size();
+
  private:
-  int fd;
+  int fd_;
+
+  std::string file_name_;
+
+  std::atomic_uint64_t write_count_;
 
   void write_n_pages(page_id_t page_id, size_t nr_pages, const char *page_data);
 

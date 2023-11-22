@@ -13,9 +13,12 @@
 #pragma once
 
 #include <cstring>
+#include <deque>
 #include <iostream>
+#include <unordered_set>
 
 #include "config.h"
+#include "rwlatch.h"
 
 namespace BTree {
 
@@ -56,19 +59,19 @@ class Page {
    * disk, false otherwise */
   inline bool IsDirty() { return is_dirty_; }
 
-  // /** Acquire the page write latch. */
-  // inline void WLatch() { rwlatch_.WLock(); }
+  /** Acquire the page write latch. */
+  inline void WLatch() { rwlatch_.WLock(); }
 
-  // /** Release the page write latch. */
-  // inline void WUnlatch() { rwlatch_.WUnlock(); }
+  /** Release the page write latch. */
+  inline void WUnlatch() { rwlatch_.WUnlock(); }
 
-  // /** Acquire the page read latch. */
-  // inline void RLatch() { rwlatch_.RLock(); }
+  /** Acquire the page read latch. */
+  inline void RLatch() { rwlatch_.RLock(); }
 
-  // /** Release the page read latch. */
-  // inline void RUnlatch() { rwlatch_.RUnlock(); }
-  // /** helper function: Try to get the read lock */
-  // inline bool TryRLatch() { return rwlatch_.TryRLock(); }
+  /** Release the page read latch. */
+  inline void RUnlatch() { rwlatch_.RUnlock(); }
+  /** helper function: Try to get the read lock */
+  inline bool TryRLatch() { return rwlatch_.TryRLock(); }
 
   /** helper function Set dirty flag */
   inline void SetDirty(bool is_dirty) { is_dirty_ = is_dirty; }
@@ -92,7 +95,67 @@ class Page {
    * page on disk. */
   bool is_dirty_ = false;
   /** Page latch. */
-  // ReaderWriterLatch rwlatch_;
+  ReaderWriterLatch rwlatch_;
+};
+
+/**
+ * Transaction tracks information related to a transaction.
+ */
+class Transaction {
+ public:
+  explicit Transaction() {
+    // Initialize the sets that will be tracked.
+    page_set_ = std::make_shared<std::deque<Page *>>();
+    deleted_page_set_ = std::make_shared<std::unordered_set<page_id_t>>();
+  }
+
+  ~Transaction() = default;
+
+  DISALLOW_COPY(Transaction);
+
+  /** @return the id of this transaction */
+  inline txn_id_t GetTransactionId() const { return txn_id_; }
+
+  /** @return the page set */
+  inline std::shared_ptr<std::deque<Page *>> GetPageSet() { return page_set_; }
+
+  /**
+   * Adds a page into the page set.
+   * @param page page to be added
+   */
+  inline void AddIntoPageSet(Page *page) { page_set_->push_back(page); }
+
+  /** @return the deleted page set */
+  inline std::shared_ptr<std::unordered_set<page_id_t>> GetDeletedPageSet() {
+    return deleted_page_set_;
+  }
+
+  /**
+   * Adds a page to the deleted page set.
+   * @param page_id id of the page to be marked as deleted
+   */
+  inline void AddIntoDeletedPageSet(page_id_t page_id) {
+    deleted_page_set_->insert(page_id);
+  }
+
+  /** @return the previous LSN */
+  inline lsn_t GetPrevLSN() { return prev_lsn_; }
+
+  /**
+   * Set the previous LSN.
+   * @param prev_lsn new previous lsn
+   */
+  inline void SetPrevLSN(lsn_t prev_lsn) { prev_lsn_ = prev_lsn; }
+
+ private:
+  /** The ID of this transaction. */
+  txn_id_t txn_id_;
+  /** The LSN of the last record written by the transaction. */
+  lsn_t prev_lsn_;
+  /** Concurrent index: the pages that were latched during index operation. */
+  std::shared_ptr<std::deque<Page *>> page_set_;
+  /** Concurrent index: the page IDs that were deleted during index operation.*/
+  std::shared_ptr<std::unordered_set<page_id_t>> deleted_page_set_;
 };
 
 }  // namespace BTree
