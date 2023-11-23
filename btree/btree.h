@@ -222,4 +222,50 @@ class BTree {
   ParallelBufferPoolManager *buffer_pool_manager_;
 };
 
+class NodeRAII {
+ public:
+  NodeRAII(ParallelBufferPoolManager *buffer_pool_manager, page_id_t page_id)
+      : buffer_pool_manager_(buffer_pool_manager), page_id_(page_id) {
+    page_ = buffer_pool_manager_->FetchPage(page_id_);
+    CheckAndInitPage();
+    // DEBUG_PRINT("raii fetch\n");
+  }
+
+  NodeRAII(ParallelBufferPoolManager *buffer_pool_manager, page_id_t *page_id)
+      : buffer_pool_manager_(buffer_pool_manager) {
+    page_ = buffer_pool_manager_->NewPage(&page_id_);
+    CheckAndInitPage();
+    *page_id = page_id_;
+  }
+
+  void CheckAndInitPage() {
+    if (page_ != nullptr) {
+      node_ = reinterpret_cast<void *>(page_->GetData());
+    } else {
+      std::cout << "allocte error, out of memory for buffer pool" << std::endl;
+      exit(-1);
+    }
+    dirty_ = false;
+  }
+
+  ~NodeRAII() {
+    if (page_ != nullptr) {
+      buffer_pool_manager_->UnpinPage(page_id_, dirty_);
+      // DEBUG_PRINT("raii unpin\n");
+    }
+  }
+
+  void *GetNode() { return node_; }
+  Page *GetPage() { return page_; }
+  page_id_t GetPageId() { return page_id_; }
+  void SetDirty(bool is_dirty) { dirty_ = is_dirty; }
+
+ private:
+  ParallelBufferPoolManager *buffer_pool_manager_;
+  page_id_t page_id_;
+  Page *page_ = nullptr;
+  void *node_ = nullptr;
+  bool dirty_;
+};
+
 }  // namespace BTree

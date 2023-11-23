@@ -46,7 +46,13 @@ void LRUReplacer::Unpin(frame_id_t frame_id) {
 }
 
 size_t LRUReplacer::Size() { return size_; }
-
+/**
+ * @brief
+ *
+ * @param frame_id
+ * @return true: frame_id is in already unpined and in replacer
+ * @return false: frame_id is pinned and not in replacer
+ */
 bool LRUReplacer::IsValid(frame_id_t frame_id) const {
   return lru_list_[frame_id].next_id_ != frame_id;
 }
@@ -154,11 +160,10 @@ Page *BufferPoolManager::NewPage(page_id_t *page_id) {
   GrabLock();
   page_id_t tmp_page_id = AllocatePage();
 
-  // 3 find
+  // 3 pick a victim frame from free_lists or replacer
   Page *ret_page = GrabPageFrame();
   VERIFY(ret_page != nullptr);
   frame_id_t cur_frame_id = static_cast<frame_id_t>(ret_page - pages_);
-  // 3 pick a victim frame from free_lists or replacer
   page_table_[tmp_page_id] = cur_frame_id;
   ret_page->pin_count_ = 1;
   ret_page->page_id_ = tmp_page_id;
@@ -241,13 +246,14 @@ bool BufferPoolManager::DeletePage(page_id_t page_id) {
   // 1 2
   frame_id_t cur_frame_id = page_table_[page_id];
   Page *cur_page = pages_ + cur_frame_id;
-  if (cur_page->GetPinCount() != 0) {
-    ReleaseLock();
-    return false;
-  }
+  // if (cur_page->GetPinCount() != 0) {
+  //   ReleaseLock();
+  //   return false;
+  // }
 
   // 3
   page_table_.erase(page_id);
+  replacer_->Pin(cur_frame_id);
   cur_page->page_id_ = INVALID_PAGE_ID;
   cur_page->pin_count_ = 0;
   cur_page->is_dirty_ = false;
@@ -262,7 +268,7 @@ bool BufferPoolManager::DeletePage(page_id_t page_id) {
 /***
  * @attention unpin don't delete maping in page_table, so it can fetch the
  * unpinned page in page_table. And the unpin page will be both in page_table
- * and replacer, even in free_list
+ * and replacer.
  */
 bool BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty) {
   GrabLock();
@@ -283,12 +289,10 @@ bool BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty) {
     // it also should be dirty
     cur_page->is_dirty_ |= is_dirty;
   }
-  // if no one pins the page, return;
-  if (cur_page->GetPinCount() <= 0) {
-    ReleaseLock();
-    return false;
+
+  if (cur_page->GetPinCount() > 0) {
+    cur_page->pin_count_--;
   }
-  cur_page->pin_count_--;
   if (cur_page->GetPinCount() == 0) {
     replacer_->Unpin(cur_frame_id);
     SignalForFreeFrame();
@@ -465,6 +469,14 @@ void ParallelBufferPoolManager::FlushAllPages() {
   for (auto &buffer : bpmis_) {
     auto instance = dynamic_cast<BufferPoolManager *>(buffer);
     instance->FlushAllPages();
+  }
+}
+
+void ParallelBufferPoolManager::Print() {
+  // flush all pages from all BufferPoolManagerInstances
+  for (auto &buffer : bpmis_) {
+    auto instance = dynamic_cast<BufferPoolManager *>(buffer);
+    instance->PrintBufferPool();
   }
 }
 

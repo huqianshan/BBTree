@@ -295,10 +295,11 @@ class ParallelBufferPoolManager {
    * Flushes all the pages in the buffer pool to disk.
    */
   void FlushAllPages();
+  void Print();
   std::vector<BufferPoolManager *> bpmis_;
   size_t num_instances_;
   std::atomic<size_t> index_;
 };
 
-extern BTree::ParallelBufferPoolManager *bpm;
+// extern BTree::ParallelBufferPoolManager *bpm;
 }  // namespace BTree

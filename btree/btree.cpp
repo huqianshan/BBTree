@@ -188,19 +188,27 @@ void InnerNode::MoveAllTo(InnerNode *recipient, const KeyType &middle_key,
                           ParallelBufferPoolManager *buffer_pool_manager) {
   int move_size = GetSize();
   int begin = recipient->GetSize();
-  this->array_[0].first = middle_key;
-  for (int i = 0; i < move_size; i++) {
+
+  // 1. set the first from parents' first key(middle key) make ordered.
+  recipient->array_[begin] = {middle_key, this->array_[0].second};
+  NodeRAII child_node_raii(buffer_pool_manager, this->array_[0].second);
+  InnerNode *child_node =
+      reinterpret_cast<InnerNode *>(child_node_raii.GetNode());
+  child_node->SetParentPageId(recipient->GetPageId());
+  child_node_raii.SetDirty(true);
+
+  // 2. move all the rest to the recipient and set parent id to new parent
+  for (int i = 1; i < move_size; i++) {
     recipient->array_[begin + i] = this->array_[i];
 
-    page_id_t child_page_id = this->array_[i].second;
-    Page *child_page_ptr = buffer_pool_manager->FetchPage(child_page_id);
-    Node *child_node = reinterpret_cast<Node *>(child_page_ptr->GetData());
-
+    NodeRAII child_node_raii(buffer_pool_manager, this->array_[i].second);
+    InnerNode *child_node =
+        reinterpret_cast<InnerNode *>(child_node_raii.GetNode());
     child_node->SetParentPageId(recipient->GetPageId());
-    this->array_[i] = {0, 0};
-    buffer_pool_manager->UnpinPage(this->array_[i].second, true);
-  }
 
+    recipient->array_[begin + i] = this->array_[i];
+    this->array_[i] = {0, 0};
+  }
   this->SetSize(0);
   recipient->IncreaseSize(move_size);
 };
@@ -216,16 +224,17 @@ void InnerNode::MoveAllTo(InnerNode *recipient, const KeyType &middle_key,
 void InnerNode::MoveFirstToEndOf(
     InnerNode *recipient, const KeyType &middle_key,
     ParallelBufferPoolManager *buffer_pool_manager) {
-  page_id_t child_page_id = array_[0].second;
-  Remove(0);
-
-  Page *child_page_ptr = buffer_pool_manager->FetchPage(child_page_id);
-  Node *node = reinterpret_cast<Node *>(child_page_ptr->GetData());
-  node->SetParentPageId(this->GetPageId());
-  // 2. flush to disk
-  buffer_pool_manager->UnpinPage(child_page_id, true);
-  // 3. add to the recip-> last
+  // 1. copy the first item to the recipient
+  page_id_t child_page_id = this->array_[0].second;
   recipient->array_[recipient->GetSize()] = {middle_key, child_page_id};
+  // 2. set the parent id
+  NodeRAII child_node_raii(buffer_pool_manager, child_page_id);
+  InnerNode *child_node =
+      reinterpret_cast<InnerNode *>(child_node_raii.GetNode());
+  child_node->SetParentPageId(recipient->GetPageId());
+  child_node_raii.SetDirty(true);
+  // 3. update size
+  Remove(0);
   recipient->IncreaseSize(1);
 };
 
@@ -239,21 +248,21 @@ void InnerNode::MoveFirstToEndOf(
 void InnerNode::MoveLastToFrontOf(
     InnerNode *recipient, const KeyType &middle_key,
     ParallelBufferPoolManager *buffer_pool_manager) {
-  page_id_t child_page_id = array_[GetSize() - 1].second;
-  Page *child_page_ptr = buffer_pool_manager->FetchPage(child_page_id);
-  Node *node = reinterpret_cast<Node *>(child_page_ptr->GetData());
-  node->SetParentPageId(recipient->GetPageId());
+  int end = this->GetSize() - 1;
+  page_id_t child_page_id = this->array_[end].second;
 
-  int size = recipient->GetSize();
-  int index = 0;
-  for (int i = size - 1; i >= index; --i) {
-    recipient->array_[i + 1] = recipient->array_[i];
-  }
-  recipient->array_[index] = {middle_key, child_page_id};
-  recipient->IncreaseSize(1);
-  // since the first item of array_ is not used
+  // 1. copy the last item to the recipient
+  recipient->InsertAt(0, middle_key, child_page_id);
+  this->array_[end] = {0, 0};
+  this->IncreaseSize(-1);
+  // 2. set key at 1 to middle key in recipient
   recipient->array_[1].first = middle_key;
-  Remove(this->GetSize() - 1);
+  // 3. update the child ptr
+  NodeRAII child_node_raii(buffer_pool_manager, child_page_id);
+  child_node_raii.SetDirty(true);
+  InnerNode *child_node =
+      reinterpret_cast<InnerNode *>(child_node_raii.GetNode());
+  child_node->SetParentPageId(recipient->GetPageId());
 };
 
 /* Copy entries into me, starting from {items} and copy {size} entries.
@@ -642,9 +651,7 @@ bool BTree::Remove(const KeyType &key) {
   Transaction *transaction = new Transaction();
 
   root_id_latch_.WLock();
-  if (transaction != nullptr) {
-    transaction->AddIntoPageSet(nullptr);  // nullptr means root_id_latch_
-  }
+  transaction->AddIntoPageSet(nullptr);  // nullptr means root_id_latch_
 
   if (IsEmpty()) {
     root_id_latch_.WUnlock();
@@ -653,8 +660,8 @@ bool BTree::Remove(const KeyType &key) {
 
   Page *leaf_page_ptr =
       FindLeafPage(key, transaction, false, LATCH_MODE_DELETE);
-  LeafNode *leaf_ptr = reinterpret_cast<LeafNode *>(leaf_page_ptr->GetData());
 
+  LeafNode *leaf_ptr = reinterpret_cast<LeafNode *>(leaf_page_ptr->GetData());
   if (!leaf_ptr->CheckDuplicated(key)) {
     ReleaseLatchQueue(transaction, LATCH_MODE_DELETE);
     return false;
@@ -662,9 +669,9 @@ bool BTree::Remove(const KeyType &key) {
 
   int index = leaf_ptr->KeyIndex(key);
   leaf_ptr->RemoveAt(index);
-  bool ret = false;
+
   if (leaf_ptr->GetSize() < leaf_ptr->GetMinSize()) {
-    ret = CoalesceOrRedistribute<LeafNode>(leaf_ptr, transaction);
+    CoalesceOrRedistribute<LeafNode>(leaf_ptr, transaction);
   }
   leaf_page_ptr->SetDirty(true);
 
@@ -716,13 +723,8 @@ bool BTree::Get(const KeyType &key, ValueType *result) {
   bool ret = leaf_ptr->Lookup(key, result);
 
   // release the latch first!
-  if (transaction != nullptr) {
-    ReleaseLatchQueue(transaction, LATCH_MODE_READ);
-  } else {
-    page_ptr->RUnlatch();
-    root_id_latch_.RUnlock();
-    buffer_pool_manager_->UnpinPage(page_ptr->GetPageId(), false);
-  }
+
+  ReleaseLatchQueue(transaction, LATCH_MODE_READ);
   delete transaction;
   return ret;
 };
@@ -939,20 +941,24 @@ bool BTree::CoalesceOrRedistribute(N *node, Transaction *transaction) {
     return AdjustRoot(node, transaction);
   }
 
-  page_id_t parent_page_id;
+  page_id_t parent_page_id = node->GetParentPageId();
   page_id_t prev_page_id = INVALID_PAGE_ID;
   page_id_t next_page_id = INVALID_PAGE_ID;
-  Page *parent_page_ptr;
-  Page *prev_page_ptr;
-  Page *next_page_ptr;
-  InnerNode *parent_ptr;
+
+  NodeRAII *parent_node_raii =
+      new NodeRAII(buffer_pool_manager_, parent_page_id);
+  NodeRAII *prev_node_raii = NULL;
+  NodeRAII *next_node_raii = NULL;
   N *prev_node;
   N *next_node;
+  bool ret = false;
 
-  parent_page_id = node->GetParentPageId();
-  parent_page_ptr = SafelyGetFrame(
-      parent_page_id, "Out of memory in `CoalesceOrRedistribute`, get parent");
-  parent_ptr = reinterpret_cast<InnerNode *>(parent_page_ptr->GetData());
+  InnerNode *parent_ptr =
+      reinterpret_cast<InnerNode *>(parent_node_raii->GetNode());
+  // parent_node always is dirty, set dirty flag;
+  // "node" is set dirty automataly, leaf node is set dirty in remove function;
+  // inner node is set by "parent_node".
+  parent_node_raii->SetDirty(true);
 
   int node_index = parent_ptr->ValueIndex(node->GetPageId());
   if (node_index > 0) {
@@ -960,66 +966,47 @@ bool BTree::CoalesceOrRedistribute(N *node, Transaction *transaction) {
     // if node_index==0 the node is the first son of parents, it has no left
     // sibling node
     prev_page_id = parent_ptr->array_[node_index - 1].second;
-    prev_page_ptr = SafelyGetFrame(
-        prev_page_id,
-        "Out of memory in `CoalesceOrRedistribute`, get prev node");
-    prev_node = reinterpret_cast<N *>(prev_page_ptr->GetData());
+    prev_node_raii = new NodeRAII(buffer_pool_manager_, prev_page_id);
+    prev_node = reinterpret_cast<N *>(prev_node_raii->GetNode());
 
     if (prev_node->GetSize() > prev_node->GetMinSize()) {
       Redistribute(prev_node, node, 1);
-
-      buffer_pool_manager_->UnpinPage(parent_page_id, true);
-      buffer_pool_manager_->UnpinPage(prev_page_id, true);
-      return false;
+      prev_node_raii->SetDirty(true);
+      goto GC;
     }
   } else if (node_index != parent_ptr->GetSize() - 1) {
     // 2. find the right sibling node to borrow a key
     // also ensures has the right sibliing node
     next_page_id = parent_ptr->array_[node_index + 1].second;
-    next_page_ptr = SafelyGetFrame(
-        next_page_id,
-        "Out of memory in `CoalesceOrRedistribute`, get next node");
-    next_node = reinterpret_cast<N *>(next_page_ptr->GetData());
+    next_node_raii = new NodeRAII(buffer_pool_manager_, next_page_id);
+    next_node = reinterpret_cast<N *>(next_node_raii->GetNode());
+
     if (next_node->GetSize() > next_node->GetMinSize()) {
       Redistribute(next_node, node, 0);
-
-      buffer_pool_manager_->UnpinPage(parent_page_id, true);
-      if (node_index > 0) {
-        buffer_pool_manager_->UnpinPage(prev_page_id, false);
-      }
-      buffer_pool_manager_->UnpinPage(next_page_id, true);
-
-      return false;
+      next_node_raii->SetDirty(true);
+      goto GC;
     }
   }
 
-  bool ret = false;
   if (prev_page_id != INVALID_PAGE_ID) {
     // 3. cannot borrow keys from sibling nodes,
     // has to merge the node to its left sibling nodes
+    prev_node = reinterpret_cast<N *>(prev_node_raii->GetNode());
     ret = Coalesce(&prev_node, &node, &parent_ptr, node_index, transaction);
-
-    buffer_pool_manager_->UnpinPage(parent_page_id, true);
-    if (ret) {
-      transaction->AddIntoDeletedPageSet(parent_page_id);
-    }
-    buffer_pool_manager_->UnpinPage(prev_page_id, true);
-    if (next_page_id != INVALID_PAGE_ID) {
-      buffer_pool_manager_->UnpinPage(next_page_id, false);
-    }
-
-    return true;
+    prev_node_raii->SetDirty(true);
+    goto GC;
   }
 
   // 4. cannot borrow keys from sibling nodes,
   // and the left sibling does not exists
   // has to merge its right sibling nodes to the node
-  // prev_page_id == INVALID_PAGE_ID
+  // prev_page_id == INVALID_PAGE_ID,
+  // next node will be delete, no need for set
   ret = Coalesce(&node, &next_node, &parent_ptr, node_index + 1, transaction);
-  buffer_pool_manager_->UnpinPage(parent_page_id, true);
-  // if (ret) {
-  //   transaction->AddIntoDeletedPageSet(parent_page_id);
-  // }
+GC:
+  if (parent_node_raii != nullptr) delete parent_node_raii;
+  if (prev_node_raii != nullptr) delete prev_node_raii;
+  if (next_node_raii != nullptr) delete next_node_raii;
   return ret;
 }
 
@@ -1048,7 +1035,6 @@ bool BTree::Coalesce(N **neighbor_node, N **node, InnerNode **parent, int index,
 
     op_node->MoveAllTo(op_neighbor_node);
 
-    buffer_pool_manager_->UnpinPage(op_node->GetPageId(), true);
     transaction->AddIntoDeletedPageSet(op_node->GetPageId());
   } else {
     InnerNode *op_node = reinterpret_cast<InnerNode *>(*node);
@@ -1057,7 +1043,6 @@ bool BTree::Coalesce(N **neighbor_node, N **node, InnerNode **parent, int index,
     KeyType middle_key = (*parent)->array_[index].first;
     op_node->MoveAllTo(op_neighbor_node, middle_key, buffer_pool_manager_);
 
-    buffer_pool_manager_->UnpinPage(op_node->GetPageId(), true);
     transaction->AddIntoDeletedPageSet(op_node->GetPageId());
   }
 
@@ -1079,11 +1064,10 @@ bool BTree::Coalesce(N **neighbor_node, N **node, InnerNode **parent, int index,
  */
 template <typename N>
 bool BTree::Redistribute(N *neighbor_node, N *node, int index) {
-  page_id_t parent_page_id = node->GetParentPageId();
-  Page *parent_page_ptr =
-      SafelyGetFrame(parent_page_id, "Out of memory in `Redistribute`");
+  NodeRAII parent_node_raii =
+      NodeRAII(buffer_pool_manager_, node->GetParentPageId());
   InnerNode *parent_ptr =
-      reinterpret_cast<InnerNode *>(parent_page_ptr->GetData());
+      reinterpret_cast<InnerNode *>(parent_node_raii.GetNode());
 
   if (node->IsLeaf()) {
     LeafNode *op_node = reinterpret_cast<LeafNode *>(node);
@@ -1113,7 +1097,6 @@ bool BTree::Redistribute(N *neighbor_node, N *node, int index) {
 
       op_neighbor_node->MoveFirstToEndOf(op_node, middle_key,
                                          buffer_pool_manager_);
-      // parent_ptr->SetKeyAt(node_index, next_middle_key);
       parent_ptr->array_[node_index].first = next_middle_key;
     } else {
       int node_index = parent_ptr->ValueIndex(op_node->GetPageId());
@@ -1126,8 +1109,7 @@ bool BTree::Redistribute(N *neighbor_node, N *node, int index) {
       parent_ptr->array_[node_index].first = next_middle_key;
     }
   }
-
-  buffer_pool_manager_->UnpinPage(parent_page_id, true);
+  parent_node_raii.SetDirty(true);
   return true;
 };
 
@@ -1157,12 +1139,12 @@ bool BTree::AdjustRoot(Node *old_root_node, Transaction *transaction) {
         reinterpret_cast<InnerNode *>(old_root_node);
     new_root_id = old_root_internal_node->RemoveAndReturnOnlyChild();
 
-    Page *new_root_page_ptr =
-        SafelyGetFrame(new_root_id, "Out of memory in `AdjustRoot");
+    NodeRAII new_root_raii(buffer_pool_manager_, new_root_id);
     InnerNode *new_root_ptr =
-        reinterpret_cast<InnerNode *>(new_root_page_ptr->GetData());
+        reinterpret_cast<InnerNode *>(new_root_raii.GetNode());
+
     new_root_ptr->SetParentPageId(INVALID_PAGE_ID);
-    buffer_pool_manager_->UnpinPage(new_root_id, true);
+    buffer_pool_manager_->UnpinPage(old_root_node->GetPageId(), false);
     transaction->AddIntoDeletedPageSet(old_root_node->GetPageId());
   }
 
@@ -1201,12 +1183,16 @@ void BTree::ReleaseLatchQueue(Transaction *transaction, LatchMode mode) {
       page_id_t page_id = page_ptr->GetPageId();
       if (mode == LATCH_MODE_READ) {
         page_ptr->RUnlatch();
-      } else if (mode == LATCH_MODE_WRITE || mode == LATCH_MODE_DELETE) {
+        buffer_pool_manager_->UnpinPage(page_id, false);
+      } else if (mode == LATCH_MODE_WRITE) {
         page_ptr->WUnlatch();
+        buffer_pool_manager_->UnpinPage(page_id, false);
+      } else if (mode == LATCH_MODE_DELETE) {
+        page_ptr->WUnlatch();
+        buffer_pool_manager_->UnpinPage(page_id, false);
       } else {
         std::cout << "Not Supported LatchMode" << std::endl;
       }
-      buffer_pool_manager_->UnpinPage(page_id, false);
     }
   }
 }
@@ -1276,6 +1262,7 @@ void BTree::ToGraph(std::ofstream &out) const {
     auto n = reinterpret_cast<InnerNode *>(root_node);
     n->ToGraph(out, buffer_pool_manager_);
   }
+  buffer_pool_manager_->UnpinPage(root_page_id_, false);
 };
 
 void BTree::ToString() const {
