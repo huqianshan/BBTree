@@ -615,6 +615,12 @@ void LeafNode::ToGraph(std::ofstream &out) const {
   }
 }
 
+BTree::~BTree() {
+  if (buffer_pool_manager_) {
+    delete buffer_pool_manager_;
+  }
+}
+
 bool BTree::Insert(const KeyType &key, const ValueType &value) {
   Transaction *transaction = new Transaction();
   bool ret;

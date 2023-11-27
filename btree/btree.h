@@ -168,6 +168,8 @@ class BTree {
     buffer_pool_manager_ = buffer;
   };
 
+  ~BTree();
+
   /* CRUD function  */
   // Insert a key-value pair into this B+ tree.
   bool Insert(const KeyType &key, const ValueType &value);

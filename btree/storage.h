@@ -5,7 +5,7 @@
 #include "config.h"
 
 namespace BTree {
-
+#define DIRECT_IO
 class DiskManager {
  public:
   DiskManager() = delete;

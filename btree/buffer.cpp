@@ -386,6 +386,7 @@ ParallelBufferPoolManager::ParallelBufferPoolManager(
     bpmis_[i] =
         new BufferPoolManager(pool_size, num_instances_, i, disk_manager);
   }
+  disk_manager_ = disk_manager;
 }
 
 // Update constructor to destruct all BufferPoolManagerInstances and deallocate
@@ -394,6 +395,9 @@ ParallelBufferPoolManager::~ParallelBufferPoolManager() {
   FlushAllPages();
   for (auto &buffer : bpmis_) {
     delete buffer;
+  }
+  if (disk_manager_) {
+    delete disk_manager_;
   }
 }
 
@@ -480,5 +484,5 @@ void ParallelBufferPoolManager::Print() {
   }
 }
 
-extern BTree::ParallelBufferPoolManager *bpm;
+// extern BTree::ParallelBufferPoolManager *bpm;
 }  // namespace BTree

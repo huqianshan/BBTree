@@ -7,15 +7,12 @@
 #include <thread>
 #include <vector>
 
-#include "../btree/btree.h"
+#include "common.h"
 
 namespace BTree {
 
-const u32 INSTANCE_SIZE = 4;
-const u32 PAGES_SIZE = 32;
-const std::string FILE_NAME = "/data/public/hjl/bbtree/hjl.db";
-const std::string DOTFILE_NAME_BEFORE = "./bbtree-before.dot";
-const std::string DOTFILE_NAME_AFTER = "./bbtree-after.dot";
+// const u32 INSTANCE_SIZE = 1;
+// const u32 PAGES_SIZE = 26;
 
 class OP {
  public:
@@ -145,8 +142,6 @@ TEST(ConcurrentTest, 1_ConcurrentInsertSeq) {
     EXPECT_EQ(key, value);
   }
 
-  delete para;
-  delete disk;
   delete btree;
 }
 
@@ -176,8 +171,6 @@ TEST(ConcurrentTest, 2_ConcurrentInsertRandom) {
     EXPECT_EQ(key, value);
   }
 
-  delete para;
-  delete disk;
   delete btree;
 }
 
@@ -207,8 +200,6 @@ TEST(ConcurrentTest, 3_ConcurrentInsertSplitSeq) {
     EXPECT_EQ(key, value);
   }
 
-  delete para;
-  delete disk;
   delete btree;
 }
 
@@ -264,6 +255,9 @@ TEST(ConcurrentTest, 4_ConcurrentDeleteSplitSeqReverse) {
   for (const auto &key : second_half_keys) {
     ValueType value = -1;
     EXPECT_FALSE(btree->Get(key, &value)) << "key: " << key;
+    if (key == 989) {
+      btree->Draw(DOTFILE_NAME_AFTER);
+    }
   }
 
   // now btree is empty
@@ -271,8 +265,6 @@ TEST(ConcurrentTest, 4_ConcurrentDeleteSplitSeqReverse) {
 
   // btree->Draw(DOTFILE_NAME_AFTER);
 
-  delete para;
-  delete disk;
   delete btree;
 }
 

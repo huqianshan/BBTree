@@ -6,15 +6,8 @@
 #include <random>
 #include <vector>
 
-#include "../btree/btree.h"
-
+#include "common.h"
 namespace BTree {
-
-const u32 INSTANCE_SIZE = 1;
-const u32 PAGES_SIZE = 26;
-const std::string FILE_NAME = "/data/public/hjl/bbtree/hjl.db";
-const std::string DOTFILE_NAME_BEFORE = "./bbtree-before.dot";
-const std::string DOTFILE_NAME_AFTER = "./bbtree-after.dot";
 
 // Sequential insert
 TEST(BTreeCRUDTest1, 1_InsertSeq) {
@@ -39,8 +32,6 @@ TEST(BTreeCRUDTest1, 1_InsertSeq) {
     EXPECT_EQ(key, value);
   }
 
-  delete para;
-  delete disk;
   delete btree;
 }
 
@@ -71,8 +62,6 @@ TEST(BTreeCRUDTest1, 2_InsertRandom) {
     EXPECT_EQ(key, value);
   }
 
-  delete para;
-  delete disk;
   delete btree;
 }
 
@@ -104,8 +93,6 @@ TEST(BTreeCRUDTest1, 3_InsertDuplicated) {
     EXPECT_EQ(key, value);
   }
 
-  delete para;
-  delete disk;
   delete btree;
 }
 
@@ -142,8 +129,6 @@ TEST(BTreeCRUDTest1, 4_DeleteSeqSmall) {
 
   btree->Draw(DOTFILE_NAME_AFTER);
 
-  delete para;
-  delete disk;
   delete btree;
 }
 
@@ -202,8 +187,6 @@ TEST(BTreeCRUDTest1, 5_DeleteSeqBig) {
 
   btree->Draw(DOTFILE_NAME_AFTER);
 
-  delete para;
-  delete disk;
   delete btree;
 }
 
@@ -257,8 +240,6 @@ TEST(BTreeCRUDTest1, 6_DeleteRandomSmall) {
 
   btree->Draw(DOTFILE_NAME_AFTER);
 
-  delete para;
-  delete disk;
   delete btree;
 }
 
@@ -303,8 +284,6 @@ TEST(BTreeCRUDTest1, 7_DeleteRandomBig) {
 
   btree->Draw(DOTFILE_NAME_AFTER);
 
-  delete para;
-  delete disk;
   delete btree;
 }
 
@@ -345,8 +324,6 @@ TEST(BTreeCRUDTest1, 8_UpdateSeq) {
 
   btree->Draw(DOTFILE_NAME_AFTER);
 
-  delete para;
-  delete disk;
   delete btree;
 }
 
@@ -387,8 +364,6 @@ TEST(BTreeCRUDTest1, 9_UpdateRand) {
 
   btree->Draw(DOTFILE_NAME_AFTER);
 
-  delete para;
-  delete disk;
   delete btree;
 }
 

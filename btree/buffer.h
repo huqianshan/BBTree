@@ -299,6 +299,7 @@ class ParallelBufferPoolManager {
   std::vector<BufferPoolManager *> bpmis_;
   size_t num_instances_;
   std::atomic<size_t> index_;
+  DiskManager *disk_manager_;
 };
 
 // extern BTree::ParallelBufferPoolManager *bpm;
