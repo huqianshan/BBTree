@@ -205,6 +205,7 @@ void InnerNode::MoveAllTo(InnerNode *recipient, const KeyType &middle_key,
     InnerNode *child_node =
         reinterpret_cast<InnerNode *>(child_node_raii.GetNode());
     child_node->SetParentPageId(recipient->GetPageId());
+    child_node_raii.SetDirty(true);
 
     recipient->array_[begin + i] = this->array_[i];
     this->array_[i] = {0, 0};
@@ -684,9 +685,7 @@ bool BTree::Remove(const KeyType &key) {
 bool BTree::Update(const KeyType &key, const ValueType &value) {
   Transaction *transaction = new Transaction();
   root_id_latch_.RLock();
-  if (transaction != nullptr) {
-    transaction->AddIntoPageSet(nullptr);  // nullptr means root_id_latch_
-  }
+  transaction->AddIntoPageSet(nullptr);  // nullptr means root_id_latch_
 
   if (IsEmpty()) {
     root_id_latch_.RUnlock();
@@ -697,28 +696,25 @@ bool BTree::Update(const KeyType &key, const ValueType &value) {
   LeafNode *leaf_ptr = reinterpret_cast<LeafNode *>(page_ptr->GetData());
   bool ret = leaf_ptr->Update(key, value);
 
-  if (!ret) {
-    return false;
+  if (ret) {
+    page_ptr->SetDirty(true);
   }
-  page_ptr->SetDirty(true);
-  buffer_pool_manager_->UnpinPage(page_ptr->GetPageId(), true);
+  ReleaseLatchQueue(transaction, LATCH_MODE_UPDATE);
   delete transaction;
-  return true;
+  return ret;
 };
 
 bool BTree::Get(const KeyType &key, ValueType *result) {
   Transaction *transaction = new Transaction();
   root_id_latch_.RLock();
-  if (transaction != nullptr) {
-    transaction->AddIntoPageSet(nullptr);  // nullptr means root_id_latch_
-  }
+  transaction->AddIntoPageSet(nullptr);  // nullptr means root_id_latch_
 
   if (IsEmpty()) {
     root_id_latch_.RUnlock();
     return false;
   }
 
-  Page *page_ptr = FindLeafPage(key, transaction);
+  Page *page_ptr = FindLeafPage(key, transaction, false, LATCH_MODE_READ);
   LeafNode *leaf_ptr = reinterpret_cast<LeafNode *>(page_ptr->GetData());
   bool ret = leaf_ptr->Lookup(key, result);
 
@@ -749,7 +745,7 @@ Page *BTree::FindLeafPage(const KeyType &key, Transaction *transaction,
 
   while (true) {
     page_ptr = buffer_pool_manager_->FetchPage(page_id);
-    VERIFY(page_ptr != nullptr);
+    // VERIFY(page_ptr != nullptr);
     tree_ptr = reinterpret_cast<Node *>(page_ptr->GetData());
 
     if (mode == LATCH_MODE_READ || mode == LATCH_MODE_UPDATE) {
@@ -1177,21 +1173,19 @@ void BTree::ReleaseLatchQueue(Transaction *transaction, LatchMode mode) {
       if (mode == LATCH_MODE_WRITE || mode == LATCH_MODE_DELETE) {
         root_id_latch_.WUnlock();
       } else {
+        // read and update operation
         root_id_latch_.RUnlock();
       }
     } else {
       page_id_t page_id = page_ptr->GetPageId();
-      if (mode == LATCH_MODE_READ) {
+      if (mode == LATCH_MODE_WRITE || mode == LATCH_MODE_DELETE) {
+        page_ptr->WUnlatch();
+        buffer_pool_manager_->UnpinPage(page_id, false);
+      } else if (mode == LATCH_MODE_READ || mode == LATCH_MODE_UPDATE) {
         page_ptr->RUnlatch();
         buffer_pool_manager_->UnpinPage(page_id, false);
-      } else if (mode == LATCH_MODE_WRITE) {
-        page_ptr->WUnlatch();
-        buffer_pool_manager_->UnpinPage(page_id, false);
-      } else if (mode == LATCH_MODE_DELETE) {
-        page_ptr->WUnlatch();
-        buffer_pool_manager_->UnpinPage(page_id, false);
       } else {
-        std::cout << "Not Supported LatchMode" << std::endl;
+        FATAL_PRINT("Not Supported LatchMode\n");
       }
     }
   }

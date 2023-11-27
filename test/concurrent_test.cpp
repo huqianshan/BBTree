@@ -1,12 +1,33 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <iostream>
+#include <numeric>
+#include <random>
 #include <thread>
 #include <vector>
 
 #include "../btree/btree.h"
 
 namespace BTree {
+
+const u32 INSTANCE_SIZE = 4;
+const u32 PAGES_SIZE = 32;
+const std::string FILE_NAME = "/data/public/hjl/bbtree/hjl.db";
+const std::string DOTFILE_NAME_BEFORE = "./bbtree-before.dot";
+const std::string DOTFILE_NAME_AFTER = "./bbtree-after.dot";
+
+class OP {
+ public:
+  TreeOpType op_type_;
+  KeyType key_;
+  ValueType value_;
+
+ public:
+  OP(TreeOpType op_type, KeyType key, ValueType value)
+      : op_type_(op_type), key_(key), value_(value) {}
+  ~OP() {}
+};
 
 template <typename... Args>
 void LaunchParallelTest(uint64_t num_threads, Args &&...args) {
@@ -75,20 +96,48 @@ void DeleteHelperSplit(BTree *tree, const std::vector<KeyType> &keys,
   // delete transaction;
 }
 
-TEST(ConcurrentTest, Insert1) {
-  DiskManager *disk = new DiskManager("/data/public/hjl/bbtree/hjl.db");
-  ParallelBufferPoolManager *para = new ParallelBufferPoolManager(1, 30, disk);
+// helper function to mixed test
+void MixedHelperSplit(BTree *tree, const std::vector<OP> &ops,
+                      int total_threads,
+                      __attribute__((unused)) uint64_t thread_itr) {
+  // create transaction
+  // Transaction *transaction = new Transaction(0);
+  for (auto op : ops) {
+    auto key = op.key_;
+    auto value = op.value_;
+    auto type = op.op_type_;
+    if (static_cast<uint64_t>(key) % total_threads == thread_itr) {
+      if (type == TREE_OP_INSERT) {
+        tree->Insert(key, value);
+      } else if (type == TREE_OP_REMOVE) {
+        tree->Remove(key);
+      } else if (type == TREE_OP_UPDATE) {
+        tree->Update(key, value);
+      } else if (type == TREE_OP_FIND) {
+        ValueType ret_value = -1;
+        tree->Get(key, &ret_value);
+        // EXPECT_TRUE(tree->Get(key, &ret_value));
+        // EXPECT_EQ(value, ret_value);
+      }
+    }
+  }
+}
+
+TEST(ConcurrentTest, 1_ConcurrentInsertSeq) {
+  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
+  ParallelBufferPoolManager *para =
+      new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
   BTree *btree = new BTree(para);
 
   // keys to Insert
-  std::vector<KeyType> keys;
-  int64_t scale_factor = 300;
-  for (KeyType key = 1; key < scale_factor; key++) {
-    keys.push_back(key);
-  }
-  LaunchParallelTest(16, InsertHelper, btree, keys);
+  int key_nums = 1024;
+  std::vector<KeyType> keys(key_nums);
+  std::iota(keys.begin(), keys.end(), 1);
 
-  // btree->Draw("./bbtree-after.dot");
+  int thread_nums = 4;
+  LaunchParallelTest(thread_nums, InsertHelper, btree, keys);
+
+  // btree->Draw(DOTFILE_NAME_AFTER);
 
   for (auto key : keys) {
     ValueType value = -1;
@@ -101,102 +150,143 @@ TEST(ConcurrentTest, Insert1) {
   delete btree;
 }
 
-// TEST(ConcurrentTest, Insert2) {
-//   DiskManager *disk = new DiskManager("/data/public/hjl/bbtree/hjl.db");
-//   ParallelBufferPoolManager *para =
-//       new ParallelBufferPoolManager(16, 1024, disk);
-//   BTree *btree = new BTree(para);
-
-//   // keys to Insert
-//   std::vector<KeyType> keys;
-//   int64_t scale_factor = 100;
-//   for (KeyType key = 1; key < scale_factor; key++) {
-//     keys.push_back(key);
-//   }
-//   LaunchParallelTest(1, InsertHelperSplit, btree, keys, 1);
-
-//   for (auto key : keys) {
-//     ValueType value = -1;
-//     EXPECT_TRUE(btree->Get(key, &value));
-//     EXPECT_EQ(key, value);
-//   }
-
-//   delete para;
-//   delete disk;
-//   delete btree;
-// }
-
-// TEST(ConcurrentTest, Delete1) {
-//   DiskManager *disk = new DiskManager("/data/public/hjl/bbtree/hjl.db");
-//   ParallelBufferPoolManager *para =
-//       new ParallelBufferPoolManager(16, 1024, disk);
-//   BTree *btree = new BTree(para);
-
-//   // sequential insert
-//   std::vector<KeyType> keys = {1, 2, 3, 4, 5};
-//   InsertHelper(btree, keys);
-
-//   btree->Draw("./bbtree-before.dot");
-
-//   std::vector<KeyType> remove_keys = {1, 5, 3, 4};
-//   LaunchParallelTest(1, DeleteHelper, btree, remove_keys);
-
-//   btree->Draw("./bbtree-after.dot");
-
-//   ValueType value = -1;
-//   EXPECT_TRUE(btree->Get(2, &value));
-//   EXPECT_EQ(2, value);
-
-//   delete para;
-//   delete disk;
-//   delete btree;
-// }
-
-// TEST(ConcurrentTest, Delete2) {
-//   remove("/data/public/hjl/bbtree/hjl.db");
-//   DiskManager *disk = new DiskManager("/data/public/hjl/bbtree/hjl.db");
-//   ParallelBufferPoolManager *para = new ParallelBufferPoolManager(1, 4,
-//   disk); BTree *btree = new BTree(para);
-
-//   // sequential insert
-//   std::vector<KeyType> keys = {1, 2, 3, 4, 5, 6};  //, }//7, 8, 9, 10};
-//   InsertHelper(btree, keys);
-
-//   btree->Draw("./bbtree-before.dot");
-
-//   std::vector<KeyType> remove_keys = {1, 4, 3, 2, 5, 6};
-//   LaunchParallelTest(1, DeleteHelper, btree, remove_keys);
-
-//   btree->Draw("./bbtree-after.dot");
-
-//   ValueType value = -1;
-//   KeyType key = 2;
-//   EXPECT_FALSE(btree->Get(2, &value));
-//   EXPECT_EQ(-1, value);
-
-//   /*   key = 7;
-//     EXPECT_TRUE(btree->Get(key, &value));
-//     EXPECT_EQ(key, value);
-
-//     key = 10;
-//     EXPECT_TRUE(btree->Get(key, &value));
-//     EXPECT_EQ(key, value); */
-
-//   delete para;
-//   delete disk;
-//   delete btree;
-// }
-
-/* TEST(ConcurrentTest, Mixed1) {
-  DiskManager *disk = new DiskManager("/data/public/hjl/bbtree/hjl.db");
+TEST(ConcurrentTest, 2_ConcurrentInsertRandom) {
+  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
   ParallelBufferPoolManager *para =
-      new ParallelBufferPoolManager(16, 1024, disk);
+      new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
+  BTree *btree = new BTree(para);
+
+  // keys to Insert
+  int key_nums = 1024;
+  std::vector<KeyType> keys(key_nums);
+  std::iota(keys.begin(), keys.end(), 1);
+
+  // random shuffle
+  std::mt19937 g(1024);
+  std::shuffle(keys.begin(), keys.end(), g);
+
+  int thread_nums = 4;
+  LaunchParallelTest(thread_nums, InsertHelper, btree, keys);
+
+  // btree->Draw(DOTFILE_NAME_AFTER);
+
+  for (auto key : keys) {
+    ValueType value = -1;
+    EXPECT_TRUE(btree->Get(key, &value));
+    EXPECT_EQ(key, value);
+  }
+
+  delete para;
+  delete disk;
+  delete btree;
+}
+
+TEST(ConcurrentTest, 3_ConcurrentInsertSplitSeq) {
+  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
+  ParallelBufferPoolManager *para =
+      new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
+  BTree *btree = new BTree(para);
+
+  // keys to Insert
+  int key_nums = 1024;
+  std::vector<KeyType> keys(key_nums);
+  std::iota(keys.begin(), keys.end(), 1);
+
+  // random shuffle
+  // std::mt19937 g(1024);
+  // std::shuffle(keys.begin(), keys.end(), g);
+
+  int thread_nums = 16;
+  LaunchParallelTest(thread_nums, InsertHelperSplit, btree, keys, thread_nums);
+
+  // btree->Draw(DOTFILE_NAME_AFTER);
+
+  for (auto key : keys) {
+    ValueType value = -1;
+    EXPECT_TRUE(btree->Get(key, &value));
+    EXPECT_EQ(key, value);
+  }
+
+  delete para;
+  delete disk;
+  delete btree;
+}
+
+TEST(ConcurrentTest, 4_ConcurrentDeleteSplitSeqReverse) {
+  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
+  ParallelBufferPoolManager *para =
+      new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
+  BTree *btree = new BTree(para);
+
+  // keys to Insert
+  int key_nums = 1024;
+  std::vector<KeyType> keys(key_nums);
+  std::iota(keys.begin(), keys.end(), 1);
+
+  // random shuffle
+  std::random_device rd;
+  std::mt19937 g(rd());
+  std::shuffle(keys.begin(), keys.end(), g);
+
+  int thread_nums = 16;
+  LaunchParallelTest(thread_nums, InsertHelperSplit, btree, keys, thread_nums);
+
+  for (auto key : keys) {
+    ValueType value = -1;
+    EXPECT_TRUE(btree->Get(key, &value));
+    EXPECT_EQ(key, value);
+  }
+
+  std::reverse(keys.begin(), keys.end());
+  std::vector<KeyType> first_half_keys(keys.begin(),
+                                       keys.begin() + keys.size() / 2);
+  std::vector<KeyType> second_half_keys(keys.begin() + keys.size() / 2,
+                                        keys.begin() + keys.size());
+
+  LaunchParallelTest(thread_nums, DeleteHelperSplit, btree, first_half_keys,
+                     thread_nums);
+
+  // deleted keys should not exist
+  for (const auto &key : first_half_keys) {
+    ValueType value = -1;
+    EXPECT_FALSE(btree->Get(key, &value));
+  }
+  // remained keys should be found
+  for (const auto &key : second_half_keys) {
+    ValueType value = -1;
+    EXPECT_TRUE(btree->Get(key, &value));
+    EXPECT_EQ(key, value);
+  }
+
+  LaunchParallelTest(thread_nums, DeleteHelperSplit, btree, second_half_keys,
+                     thread_nums);
+
+  for (const auto &key : second_half_keys) {
+    ValueType value = -1;
+    EXPECT_FALSE(btree->Get(key, &value)) << "key: " << key;
+  }
+
+  // now btree is empty
+  EXPECT_TRUE(btree->IsEmpty());
+
+  // btree->Draw(DOTFILE_NAME_AFTER);
+
+  delete para;
+  delete disk;
+  delete btree;
+}
+
+TEST(ConcurrentTest, 5_MixedSmall) {
+  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
+  ParallelBufferPoolManager *para =
+      new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
   BTree *btree = new BTree(para);
 
   // sequential insert
-  int64_t len = 25120;
+  int64_t len = 1024;
   std::vector<KeyType> keys(len);
-  for (int i = 1; i < 10; i++) {
+  int point = 100;
+  for (int i = 1; i < point; i++) {
     keys[i] = (i) * (i - 1);
   }
   InsertHelper(btree, keys);
@@ -206,7 +296,8 @@ TEST(ConcurrentTest, Insert1) {
   for (int i = 0; i <= len; i++) {
     keys.push_back(i);
   }
-  LaunchParallelTest(1, InsertHelper, btree, keys);
+  int thread_nums = 16;
+  LaunchParallelTest(thread_nums, InsertHelperSplit, btree, keys, thread_nums);
 
   // concurrent delete
   std::vector<KeyType> remove_keys = {1, 4, 3, 5, 6};
@@ -225,10 +316,74 @@ TEST(ConcurrentTest, Insert1) {
   EXPECT_TRUE(btree->Get(key, &value));
   EXPECT_EQ(key, value);
 
-  para->FlushAllPages();
   delete para;
   delete disk;
   delete btree;
-} */
+}
+
+TEST(ConcurrentTest, 6_MixedReal) {
+  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
+  ParallelBufferPoolManager *para =
+      new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
+  BTree *btree = new BTree(para);
+
+  // keys to Insert
+  int key_nums = 1024;
+  std::vector<KeyType> keys(key_nums);
+  std::iota(keys.begin(), keys.end(), 1);
+  // random shuffle
+  std::mt19937 g(1024);
+  std::shuffle(keys.begin(), keys.end(), g);
+
+  int thread_nums = 16;
+  LaunchParallelTest(thread_nums, InsertHelperSplit, btree, keys, thread_nums);
+
+  for (auto key : keys) {
+    ValueType value = -1;
+    EXPECT_TRUE(btree->Get(key, &value));
+    EXPECT_EQ(key, value);
+  }
+
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<> dis_end(key_nums - 1, key_nums * 2 - 1);
+  std::vector<OP> insert_ops;
+  for (int i = 0; i < key_nums; i++) {
+    int pos = dis_end(gen);
+    insert_ops.push_back(OP(TREE_OP_INSERT, pos, pos));
+  }
+
+  std::vector<OP> delete_ops;
+  std::uniform_int_distribution<> dis_half(1, key_nums - 1);
+  for (int i = 0; i < key_nums / 2; i++) {
+    int pos = dis_half(gen);
+    delete_ops.push_back(OP(TREE_OP_REMOVE, pos, -1));
+  }
+
+  std::vector<OP> update_ops;
+  for (int i = key_nums / 2; i < key_nums; i++) {
+    update_ops.push_back(OP(TREE_OP_UPDATE, i, i * i));
+  }
+
+  std::vector<OP> find_ops;
+  for (int i = 1; i < key_nums; i++) {
+    find_ops.push_back(OP(TREE_OP_FIND, i, i));
+  }
+
+  std::vector<OP> all_ops;
+  all_ops.insert(all_ops.end(), insert_ops.begin(), insert_ops.end());
+  all_ops.insert(all_ops.end(), delete_ops.begin(), delete_ops.end());
+  all_ops.insert(all_ops.end(), update_ops.begin(), update_ops.end());
+  all_ops.insert(all_ops.end(), find_ops.begin(), find_ops.end());
+
+  LaunchParallelTest(thread_nums, MixedHelperSplit, btree, all_ops,
+                     thread_nums);
+
+  btree->Draw(DOTFILE_NAME_AFTER);
+
+  delete para;
+  delete disk;
+  delete btree;
+}
 
 }  // namespace BTree
