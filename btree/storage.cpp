@@ -34,6 +34,7 @@ void DiskManager::write_n_pages(page_id_t page_id, size_t nr_pages,
 
 void DiskManager::read_n_pages(page_id_t page_id, size_t nr_pages,
                                char *page_data) {
+  read_count_.fetch_add(1, std::memory_order_relaxed);
   ssize_t len = nr_pages * PAGE_SIZE;
   ssize_t ret = pread(fd_, page_data, len, page_id * PAGE_SIZE);
   assert_msg(ret > 0, "read failed\n");
@@ -48,12 +49,17 @@ DiskManager::DiskManager(const char *db_file) {
   file_name_ = std::string(db_file);
   assert_msg(fd_ > 0, "open");
   write_count_.store(0, std::memory_order_relaxed);
+  read_count_.store(0, std::memory_order_relaxed);
 }
 
 DiskManager::~DiskManager() {
   u64 size = get_file_size();
-  INFO_PRINT("write_count=%8lu PAGES fielsize=%8lu PAGES\n",
-             write_count_.load(), size / PAGE_SIZE);
+  (void)size;
+  INFO_PRINT(
+      "[Storage] Write_count=%8lu read_count=%8lu PAGES fielsize=%8lu PAGES "
+      "PAGE= %4d "
+      "Bytes\n",
+      write_count_.load(), read_count_.load(), size / PAGE_SIZE, PAGE_SIZE);
   int ret = close(fd_);
   assert_msg(!ret, "close");
 }
@@ -77,5 +83,8 @@ u64 DiskManager::get_file_size() {
   assert_msg(ret != -1, "Failed to get file size");
   return statbuf.st_size;
 }
+
+u64 DiskManager::get_read_count() { return read_count_.load(); }
+u64 DiskManager::get_write_count() { return write_count_.load(); }
 
 }  // namespace BTree

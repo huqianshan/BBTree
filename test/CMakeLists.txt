@@ -12,6 +12,7 @@ target_link_libraries(runUnitTests
 
 set(CMAKE_CXX_FLAGS "-std=c++1z")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
+# set(CMAKE_CXX_FLAGS_DEBUG "-g -O3 -march=native -DDEBUG")
 
 add_executable(bbtree benchmark.cpp    ${BBTREE_CPPS})
 target_link_libraries(bbtree

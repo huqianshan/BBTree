@@ -117,8 +117,7 @@ void run_test(int num_thread, string load_data, string run_data,
   }
   LOAD_SIZE = count;
   infile_load.close();
-  if (workload == "ycsbe") LOAD_SIZE = 0;
-  fprintf(stdout, "Loaded %lu keys for initialing.\n", LOAD_SIZE);
+  fprintf(stdout, "Loaded %8lu keys for initialing.\n", LOAD_SIZE);
 
   ifstream infile_run(run_data);
   count = 0;
@@ -147,7 +146,7 @@ void run_test(int num_thread, string load_data, string run_data,
   }
   RUN_SIZE = count;
 
-  fprintf(stdout, "Loaded %d keys for running.\n", count);
+  fprintf(stdout, "Loaded %8lu keys for running.\n", RUN_SIZE);
 #ifdef DRAM_CONSUMPTION
   //   test();
   //   int ret = system((dram_shell + process_name).c_str());
@@ -187,6 +186,7 @@ void run_test(int num_thread, string load_data, string run_data,
     }
     auto t = sw.elapsed<std::chrono::milliseconds>();
     printf("Throughput: load, %3.3f Kops/s\n", (LOAD_SIZE * 1.0) / (t));
+    printf("Load time: %4.4f sec\n", t / 1000.0);
   }
   part = RUN_SIZE / num_thread;
   // Run
@@ -265,7 +265,24 @@ void run_test(int num_thread, string load_data, string run_data,
   //   ret = system((dram_shell + process_name).c_str());
   GetDRAMSpace();
 #endif
+
+  auto file_size = disk->get_file_size();
+  auto read_count = disk->get_read_count();
+  auto write_count = disk->get_write_count();
+
   delete tree;
+
+  double page_read_avg = 1.0 * read_count * PAGE_SIZE / file_size;
+  double page_write_avg = 1.0 * write_count * PAGE_SIZE / file_size;
+  double bytes_read_avg = 1.0 * read_count * PAGE_SIZE / (LOAD_SIZE + RUN_SIZE);
+  double bytes_write_avg =
+      1.0 * write_count * PAGE_SIZE / (LOAD_SIZE + RUN_SIZE);
+  printf(
+      "[BufferPool]: In-place read in a page: %6.2f, In-place write in a page: "
+      "%6.2f\n",
+      page_read_avg, page_write_avg);
+  printf("[BTreeIndex]: Read amp: %6.2f bytes/op, Write amp: %6.2f bytes/op\n",
+         bytes_read_avg, bytes_write_avg);
 }
 
 int main(int argc, char **argv) {
@@ -309,23 +326,25 @@ int main(int argc, char **argv) {
   auto read_total_zone = static_cast<u64>(read_zone - read_zone_before);
   auto write_total_zone = static_cast<u64>(written_zone - written_zone_before);
 
-  printf("[Reg] Read: %6lu, Written: %6lu\n", read_total_reg, write_total_reg);
-  printf("[Zone] Read: %6lu, Written: %6lu\n", read_total_zone,
+  printf("[Reg] Read: %6lu Units, Written: %6lu Units\n", read_total_reg,
+         write_total_reg);
+  printf("[Zone] Read: %6lu Units, Written: %6lu Units\n", read_total_zone,
          write_total_zone);
 
   auto write_amplification_reg =
-      write_total_reg * 1.0 * UNITS_SIZE / max_load_size;
+      write_total_reg * 1.0 * UNITS_SIZE / (LOAD_SIZE + RUN_SIZE);
   auto write_amplification_zone =
-      write_total_zone * 1.0 * UNITS_SIZE / max_load_size;
+      write_total_zone * 1.0 * UNITS_SIZE / (LOAD_SIZE + RUN_SIZE);
   auto read_amplification_reg =
-      read_total_reg * 1.0 * UNITS_SIZE / max_load_size;
+      read_total_reg * 1.0 * UNITS_SIZE / (LOAD_SIZE + RUN_SIZE);
   auto read_amplification_zone =
-      read_total_zone * 1.0 * UNITS_SIZE / max_load_size;
+      read_total_zone * 1.0 * UNITS_SIZE / (LOAD_SIZE + RUN_SIZE);
 
   printf("[Reg] Read amp: %6.2f bytes/op, Write amp: %6.2f bytes/op \n",
          read_amplification_reg, write_amplification_reg);
   printf("[Zone] Read amp: %6.2f bytes/op, Write amp: %6.2f bytes/op \n",
          read_amplification_zone, write_amplification_zone);
+  printf("Load size: %lu, Run size: %lu\n", LOAD_SIZE, RUN_SIZE);
 
   printf("Test End\n");
   return 0;

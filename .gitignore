@@ -36,3 +36,6 @@
 **/.vscode/
 **/.VSCodeCounter/**
 **/*.dot
+**/*.svg
+**/*.old
+**/result/**

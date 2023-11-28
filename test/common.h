@@ -3,8 +3,8 @@
 #include "timer.h"
 
 namespace BTree {
-const u32 INSTANCE_SIZE = 1;
-const u32 PAGES_SIZE = 4 * 1024;
+const u32 INSTANCE_SIZE = 16;
+const u32 PAGES_SIZE = 256;
 const std::string DOTFILE_NAME_BEFORE = "./bbtree-before.dot";
 const std::string DOTFILE_NAME_AFTER = "./bbtree-after.dot";
 

@@ -11,18 +11,17 @@ using u64 = uint64_t;
 using u32 = uint32_t;
 using i32 = int32_t;
 
-typedef u32 lsn_t;  // log sequence number type
-typedef i32 txn_id_t;
+// typedef i32 txn_id_t;
 typedef u32 page_id_t;
 typedef u64 KeyType;
 typedef u64 ValueType;
 typedef std::pair<KeyType, ValueType> PairType;
 
-static constexpr int HEADER_PAGE_ID = 0;          // the header page id
 static constexpr u32 PAGE_SIZE = 4096;            // size of a data page in byte
-static constexpr int BUFFER_POOL_SIZE = 10;       // size of buffer pool
 static constexpr page_id_t INVALID_PAGE_ID = -1;  // invalid page id
-static constexpr int INVALID_LSN = -1;            // invalid log sequnse number
+
+const KeyType MIN_KEY = std::numeric_limits<KeyType>::min();
+const ValueType INVALID_VALUE = std::numeric_limits<ValueType>::max();
 
 enum NodeType { INNERNODE = 0, LEAFNODE, ROOTNODE, INVALIDNODE };
 enum TreeOpType {
@@ -41,15 +40,6 @@ enum LatchMode {
   LATCH_MODE_SCAN,    // not supported
   LATCH_MODE_NOP,     // not supported
 };
-
-const u32 INNER_MAX_SLOT = 250;
-const u32 LEAF_MAX_SLOT = 250;
-// the first KV slot is reserved for meta
-const u64 PAGE_HEADER_SIZE = sizeof(KeyType) + sizeof(ValueType);
-// Key的最小值
-const KeyType MIN_KEY = std::numeric_limits<KeyType>::min();
-// 最大的int64用作非法值
-const ValueType INVALID_VALUE = std::numeric_limits<ValueType>::max();
 
 // Macros to disable copying and moving
 #define DISALLOW_COPY(cname)     \
@@ -73,7 +63,7 @@ const ValueType INVALID_VALUE = std::numeric_limits<ValueType>::max();
 #define VERIFY(expression) assert(expression)
 #endif
 
-#ifdef NDEBUG
+#ifdef DEBUG
 
 #define INFO_PRINT(fmt, args...)
 #define DEBUG_PRINT(fmt, args...)

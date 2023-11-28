@@ -25,12 +25,16 @@ class DiskManager {
   /* Get file size */
   u64 get_file_size();
 
+  u64 get_read_count();
+  u64 get_write_count();
+
  private:
   int fd_;
 
   std::string file_name_;
 
   std::atomic_uint64_t write_count_;
+  std::atomic_uint64_t read_count_;
 
   void write_n_pages(page_id_t page_id, size_t nr_pages, const char *page_data);
 

@@ -114,7 +114,7 @@ class Transaction {
   DISALLOW_COPY(Transaction);
 
   /** @return the id of this transaction */
-  inline txn_id_t GetTransactionId() const { return txn_id_; }
+  // inline txn_id_t GetTransactionId() const { return txn_id_; }
 
   /** @return the page set */
   inline std::shared_ptr<std::deque<Page *>> GetPageSet() { return page_set_; }
@@ -138,20 +138,10 @@ class Transaction {
     deleted_page_set_->insert(page_id);
   }
 
-  /** @return the previous LSN */
-  inline lsn_t GetPrevLSN() { return prev_lsn_; }
-
-  /**
-   * Set the previous LSN.
-   * @param prev_lsn new previous lsn
-   */
-  inline void SetPrevLSN(lsn_t prev_lsn) { prev_lsn_ = prev_lsn; }
-
  private:
   /** The ID of this transaction. */
-  txn_id_t txn_id_;
+  // txn_id_t txn_id_;
   /** The LSN of the last record written by the transaction. */
-  lsn_t prev_lsn_;
   /** Concurrent index: the pages that were latched during index operation. */
   std::shared_ptr<std::deque<Page *>> page_set_;
   /** Concurrent index: the page IDs that were deleted during index operation.*/

@@ -25,53 +25,10 @@ int main(int argc, char const *argv[]) {
     btree->Insert(key, key * key);
   }
 
-  {
-    std::ofstream out("./bbtree-before.dot", std::ofstream::trunc);
-    assert(!out.fail());
-    out << "digraph G {" << std::endl;
-    btree->ToGraph(out, para);
-    out << "}" << std::endl;
-    out.close();
-    btree->ToString(para);
-  }
-
-  for (auto key : keys) {
-    BTree::ValueType ret = 0;
-    btree->Get(key, &ret);
-    // std::cout << key << " "
-    //           << " " << ret << " " << flag << std::endl;
-    assert(key * key == ret);
-  }
-
   btree->Remove(4);
   btree->Remove(3);
   btree->Remove(5);
-  // for (auto key : keys) {
-  //   btree->Remove(key);
-  //   std::cout << key << " ";
-  //   if (key >= 0) {
-  //     break;
-  //   }
-  // }
 
-  btree->ToString(para);
-
-  {
-    std::ofstream out("./bbtree.dot", std::ofstream::trunc);
-    assert(!out.fail());
-    out << "digraph G {" << std::endl;
-    btree->ToGraph(out, para);
-    out << "}" << std::endl;
-    out.close();
-  }
-  /* for (BTree::KeyType begin = 0; begin < 31; begin++) {
-    btree->Insert(begin, begin * begin);
-  } */
-
-  para->FlushAllPages();
-
-  delete para;
-  delete disk;
   delete btree;
   return 0;
 }

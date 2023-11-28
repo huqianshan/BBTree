@@ -109,7 +109,7 @@ BufferPoolManager::BufferPoolManager(size_t pool_size, uint32_t num_instances,
 }
 
 BufferPoolManager::~BufferPoolManager() {
-  PrintBufferPool();
+  // PrintBufferPool();
 
   delete[] pages_;
   free(page_data_);
@@ -392,6 +392,7 @@ ParallelBufferPoolManager::ParallelBufferPoolManager(
 // Update constructor to destruct all BufferPoolManagerInstances and deallocate
 // any associated memory
 ParallelBufferPoolManager::~ParallelBufferPoolManager() {
+  Print();
   FlushAllPages();
   for (auto &buffer : bpmis_) {
     delete buffer;
@@ -477,11 +478,20 @@ void ParallelBufferPoolManager::FlushAllPages() {
 }
 
 void ParallelBufferPoolManager::Print() {
-  // flush all pages from all BufferPoolManagerInstances
+  u64 page_table_size = 0;
+  u64 replacer_size = 0;
+  u64 free_list_size = 0;
   for (auto &buffer : bpmis_) {
     auto instance = dynamic_cast<BufferPoolManager *>(buffer);
-    instance->PrintBufferPool();
+    // instance->PrintBufferPool();
+    page_table_size += instance->page_table_.size();
+    replacer_size += instance->replacer_->Size();
+    free_list_size += instance->free_list_.size();
   }
+  printf(
+      "Instance Nums:%2lu Page table size:%4lu Replacer size: %4lu"
+      " Free list size: %4lu \n",
+      num_instances_, page_table_size, replacer_size, free_list_size);
 }
 
 // extern BTree::ParallelBufferPoolManager *bpm;

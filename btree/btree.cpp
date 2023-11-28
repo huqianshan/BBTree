@@ -62,10 +62,7 @@ void Node::SetParentPageId(page_id_t parent_page_id) {
 page_id_t Node::GetPageId() const { return page_id_; }
 void Node::SetPageId(page_id_t page_id) { page_id_ = page_id; }
 
-/*
- * Helper methods to set lsn
- */
-// void Node::SetLSN(lsn_t lsn) { lsn_ = lsn; }
+
 /*
  * helper function
  * binary search for a key and return the index (array_ offset)

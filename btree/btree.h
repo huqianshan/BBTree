@@ -11,17 +11,10 @@
 
 namespace BTree {
 
-class KVRecord {
- public:
-  KeyType key;
-  ValueType value;
-  bool operator<(const KVRecord &o) const { return key < o.key; }
-};
-
 class Node {
  public:
   NodeType node_type;
-  page_id_t page_id_;  // node标识
+  page_id_t page_id_;
   page_id_t parent_page_id_;
   u32 size_;
   u32 max_size_;
@@ -47,8 +40,6 @@ class Node {
 
   page_id_t GetPageId() const;
   void SetPageId(page_id_t page_id_);
-
-  void SetLSN(lsn_t lsn = INVALID_LSN);
 };
 
 /**
@@ -160,7 +151,15 @@ class LeafNode : public Node {
   PairType array_[0];
 };
 
-// extern Transaction *transaction;
+const u32 NODE_HEADER_SIZE = sizeof(Node);
+const u32 INNER_HEADER_SIZE = sizeof(InnerNode);
+const u32 LEAF_HEADER_SIZE = sizeof(LeafNode);
+
+// resever one slot for split
+const u32 INNER_MAX_SLOT =
+    (((PAGE_SIZE - INNER_HEADER_SIZE) / sizeof(PairType)) - 1);
+const u32 LEAF_MAX_SLOT =
+    ((PAGE_SIZE - LEAF_HEADER_SIZE) / sizeof(PairType) - 1);
 class BTree {
  public:
   explicit BTree(ParallelBufferPoolManager *buffer) {
