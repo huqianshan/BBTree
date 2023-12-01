@@ -19,8 +19,8 @@ endif()
 ##
 ## compiler flags
 ##
-set(CMAKE_CXX_FLAGS "-Wall -Werror -pthread")
-set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g3 ") #-fsanitize=leak,address,undefined
+set(CMAKE_CXX_FLAGS "-Wall -Werror -pthread -std=c++1z")
+set(CMAKE_CXX_FLAGS_DEBUG "-O2 -g3 -fno-inline -fno-omit-frame-pointer") #-fsanitize=leak,address,undefined
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
 
@@ -30,7 +30,7 @@ set(TEST_LIBS gtest gmock pthread)
 file(GLOB BBTREE_CPPS "./btree/*.cpp")
 
 ## test.cpp
-add_executable(bbtree test.cpp ${BBTREE_CPPS})
+# add_executable(bbtree test.cpp ${BBTREE_CPPS})
 # target_link_libraries(bbtree)
 
 
@@ -40,7 +40,7 @@ add_executable(bbtree test.cpp ${BBTREE_CPPS})
 # enable_testing()
 # 查找 GTest 库
 # find_package(GTest REQUIRED)
-# add_subdirectory(test)
+add_subdirectory(test)
 
 
 

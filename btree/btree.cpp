@@ -1,5 +1,6 @@
 #include "btree.h"
 
+#include <stack>
 namespace BTree {
 
 /*
@@ -61,7 +62,6 @@ void Node::SetParentPageId(page_id_t parent_page_id) {
  */
 page_id_t Node::GetPageId() const { return page_id_; }
 void Node::SetPageId(page_id_t page_id) { page_id_ = page_id; }
-
 
 /*
  * helper function
@@ -613,6 +613,7 @@ void LeafNode::ToGraph(std::ofstream &out) const {
 }
 
 BTree::~BTree() {
+  GetNodeNums();
   if (buffer_pool_manager_) {
     delete buffer_pool_manager_;
   }
@@ -1285,5 +1286,74 @@ void BTree::Draw(std::string path) const {
   // ToString();
   std::cout << path << " dot file flushed now" << std::endl;
 };
+
+int BTree::GetHeight() const {
+  int height = 0;
+  if (root_page_id_ != INVALID_PAGE_ID) {
+    NodeRAII root_raii(buffer_pool_manager_, root_page_id_);
+    Node *root = reinterpret_cast<Node *>(root_raii.GetNode());
+
+    InnerNode *innerNode = reinterpret_cast<InnerNode *>(root);
+    height++;
+
+    while (innerNode->IsLeaf() == false) {
+      NodeRAII child_raii(buffer_pool_manager_, innerNode->array_[0].second);
+      Node *child = reinterpret_cast<Node *>(child_raii.GetNode());
+      innerNode = reinterpret_cast<InnerNode *>(child);
+      height++;
+    }
+  }
+  return height;
+}
+
+void BTree::GetNodeNums() const {
+  u64 innerNodeCount = 0;
+  u64 leafNodeCount = 0;
+  double avgInnerNodeKeys = 0;
+  double avgLeafNodeKeys = 0;
+  u32 height = 0;
+
+  if (root_page_id_ != INVALID_PAGE_ID) {
+    std::stack<std::pair<page_id_t, u32>> nodeStack;
+    nodeStack.push({root_page_id_, 1});
+
+    while (!nodeStack.empty()) {
+      NodeRAII node_raii(buffer_pool_manager_, nodeStack.top().first);
+      Node *node = reinterpret_cast<Node *>(node_raii.GetNode());
+      u32 depth = nodeStack.top().second;
+      nodeStack.pop();
+
+      height = std::max(height, depth);
+
+      if (node->IsLeaf()) {
+        LeafNode *leafNode = reinterpret_cast<LeafNode *>(node);
+        leafNodeCount++;
+        avgLeafNodeKeys += leafNode->GetSize();
+      } else {
+        InnerNode *innerNode = reinterpret_cast<InnerNode *>(node);
+        innerNodeCount++;
+        avgInnerNodeKeys += innerNode->GetSize();
+
+        for (int i = 0; i < innerNode->GetSize(); i++) {
+          nodeStack.push({innerNode->array_[i].second, depth + 1});
+        }
+      }
+    }
+  }
+
+  if (innerNodeCount > 0) {
+    avgInnerNodeKeys /= innerNodeCount;
+  }
+
+  if (leafNodeCount > 0) {
+    avgLeafNodeKeys /= leafNodeCount;
+  }
+  printf(
+      "Tree Height: %2u InnerNodeCount: %4lu LeafNodeCount: %6lu Avg Inner "
+      "Node "
+      "pairs: %3.1lf "
+      "Avg Leaf Node pairs %3.1lf\n",
+      height, innerNodeCount, leafNodeCount, avgInnerNodeKeys, avgLeafNodeKeys);
+}
 
 }  // namespace BTree

@@ -1,6 +1,9 @@
 include_directories(../btree)
 file(GLOB BBTREE_CPPS "../btree/*.cpp")
 
+set(CMAKE_CXX_FLAGS "-std=c++1z")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
+
 add_executable(runUnitTests
         gtest.cpp
         insert_delete_test.cpp 
@@ -10,8 +13,6 @@ target_link_libraries(runUnitTests
         gtest
         pthread)
 
-set(CMAKE_CXX_FLAGS "-std=c++1z")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -DNDEBUG")
 # set(CMAKE_CXX_FLAGS_DEBUG "-g -O3 -march=native -DDEBUG")
 
 add_executable(bbtree benchmark.cpp    ${BBTREE_CPPS})

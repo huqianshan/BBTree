@@ -85,7 +85,6 @@ void run_test(int num_thread, string load_data, string run_data,
               string workload, u64 max_load_size, u64 max_run_size) {
   u64 MAX_SIZE_LOAD = max_load_size;
   u64 MAX_SIZE_RUN = max_run_size;
-  if (workload == "ycsbi") MAX_SIZE_RUN = 800000000;
   string insert("INSERT");
   string remove("REMOVE");
   string read("READ");
@@ -287,6 +286,7 @@ void run_test(int num_thread, string load_data, string run_data,
 
 int main(int argc, char **argv) {
   if (argc != 4) {
+    printf("Usage: %s <workload> <threads> <size>\n", argv[0]);
     exit(0);
   };
 
@@ -312,14 +312,14 @@ int main(int argc, char **argv) {
 
   remove(FILE_NAME.c_str());
 
-  auto [read_reg_before, written_reg_before] = getDataUnits("/dev/nvme5n1p2");
-  auto [read_zone_before, written_zone_before] = getDataUnits("/dev/nvme2n2");
+  auto [read_reg_before, written_reg_before] = getDataUnits(REGURLAR_DEVICE);
+  auto [read_zone_before, written_zone_before] = getDataUnits(ZNS_DEVICE);
 
   run_test(num_thread, load_data, run_data, workload, max_load_size,
            max_run_size);
 
-  auto [read_reg, written_reg] = getDataUnits("/dev/nvme5n1p2");
-  auto [read_zone, written_zone] = getDataUnits("/dev/nvme2n2");
+  auto [read_reg, written_reg] = getDataUnits(REGURLAR_DEVICE);
+  auto [read_zone, written_zone] = getDataUnits(ZNS_DEVICE);
 
   auto read_total_reg = static_cast<u64>(read_reg - read_reg_before);
   auto write_total_reg = static_cast<u64>(written_reg - written_reg_before);

@@ -165,6 +165,11 @@ class BTree {
   explicit BTree(ParallelBufferPoolManager *buffer) {
     SetRootPageId(INVALID_PAGE_ID);
     buffer_pool_manager_ = buffer;
+    INFO_PRINT(
+        "Node size: %u Inner Node size: %u Leaf Node size: %u Inner max "
+        "slots: %u leaf max slots: %u\n",
+        NODE_HEADER_SIZE, INNER_HEADER_SIZE, LEAF_HEADER_SIZE, INNER_MAX_SLOT,
+        LEAF_MAX_SLOT);
   };
 
   ~BTree();
@@ -216,6 +221,8 @@ class BTree {
   void ToGraph(std::ofstream &out) const;
   void ToString() const;
   void Draw(std::string path) const;
+  int GetHeight() const;
+  void GetNodeNums() const;
 
  private:
   page_id_t root_page_id_;

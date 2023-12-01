@@ -75,7 +75,9 @@ void LRUReplacer::Invalidate(frame_id_t frame_id) {
 
 BufferPoolManager::BufferPoolManager(size_t pool_size,
                                      DiskManager *disk_manager)
-    : BufferPoolManager(pool_size, 1, 0, disk_manager) {}
+    : BufferPoolManager(pool_size, 1, 0, disk_manager) {
+  count_ = hit_ = miss_ = 0;
+}
 
 BufferPoolManager::BufferPoolManager(size_t pool_size, uint32_t num_instances,
                                      uint32_t instance_index,
@@ -106,6 +108,7 @@ BufferPoolManager::BufferPoolManager(size_t pool_size, uint32_t num_instances,
   VERIFY(!ret);
   ret = pthread_cond_init(&cond_, nullptr);
   VERIFY(!ret);
+  count_ = hit_ = miss_ = 0;
 }
 
 BufferPoolManager::~BufferPoolManager() {
@@ -173,6 +176,9 @@ Page *BufferPoolManager::NewPage(page_id_t *page_id) {
   *page_id = tmp_page_id;
 
   // DEBUG_PRINT("new page_id:%4u frame_id:%4u\n", tmp_page_id, cur_frame_id);
+  // new page is not hit, add miss
+  miss_++;
+  count_++;
 
   ReleaseLock();
   return ret_page;
@@ -189,6 +195,7 @@ Page *BufferPoolManager::FetchPage(page_id_t page_id) {
   // 4.     Update P's metadata, read in the page content from disk, and then
   // return a pointer to P.
   GrabLock();
+  count_++;
   Page *ret_page = nullptr;
 
   if (page_table_.find(page_id) != page_table_.end()) {
@@ -199,11 +206,14 @@ Page *BufferPoolManager::FetchPage(page_id_t page_id) {
     ret_page->pin_count_++;
     replacer_->Pin(cur_frame_id);
     // DEBUG_PRINT("fetch page_id:%4u frame_id:%4u\n", page_id, cur_frame_id);
+
+    hit_++;
+
     ReleaseLock();
     return ret_page;
   }
-
-  // 1.2.1 first find page in free list
+  miss_++;
+  // 1.2 2 3
   ret_page = GrabPageFrame();
   if (ret_page == nullptr) {
     ReleaseLock();
@@ -481,17 +491,31 @@ void ParallelBufferPoolManager::Print() {
   u64 page_table_size = 0;
   u64 replacer_size = 0;
   u64 free_list_size = 0;
+
+  u64 count = 0;
+  u64 miss = 0;
+  u64 hit = 0;
+
   for (auto &buffer : bpmis_) {
     auto instance = dynamic_cast<BufferPoolManager *>(buffer);
     // instance->PrintBufferPool();
     page_table_size += instance->page_table_.size();
     replacer_size += instance->replacer_->Size();
     free_list_size += instance->free_list_.size();
+
+    count += instance->count_;
+    miss += instance->miss_;
+    hit += instance->hit_;
   }
   printf(
       "Instance Nums:%2lu Page table size:%4lu Replacer size: %4lu"
       " Free list size: %4lu \n",
       num_instances_, page_table_size, replacer_size, free_list_size);
+
+  double miss_ratio = miss * 100.0 / count;
+  double hit_ratio = hit * 100.0 / count;
+  printf("BufferPool count:%4lu miss: %4lu %2.2lf %% hit: %4lu %2.2lf %%\n",
+         count, miss, miss_ratio, hit, hit_ratio);
 }
 
 // extern BTree::ParallelBufferPoolManager *bpm;

@@ -219,6 +219,10 @@ class BufferPoolManager {
   // big lock for buffer pool manager instance
   pthread_mutex_t mutex_;
   pthread_cond_t cond_;
+  // count
+  u64 count_;
+  u64 hit_;
+  u64 miss_;
 };
 
 class ParallelBufferPoolManager {

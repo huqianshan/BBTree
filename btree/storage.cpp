@@ -29,6 +29,7 @@ void DiskManager::write_n_pages(page_id_t page_id, size_t nr_pages,
   write_count_.fetch_add(1, std::memory_order_relaxed);
   ssize_t len = nr_pages * PAGE_SIZE;
   ssize_t ret = pwrite(fd_, page_data, len, page_id * PAGE_SIZE);
+  // fsync(fd_);
   assert_msg(ret > 0, "write failed\n");
 }
 
