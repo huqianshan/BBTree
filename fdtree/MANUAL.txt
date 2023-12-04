@@ -1,0 +1,62 @@
+Usage:
+  fdtree.exe [options]* -c <int> -n <int>
+  -c/--cardinality <int> specify the index cardinality
+  -n/--nquery <int>      specify the number of queries
+                         If -q 0, perform sufficient queries (and insertions) 
+                         to make the lowest two levels be merged
+Options:
+  -k <int>               specify the size ratio between adjacent levels.
+                         (default: using cost model to automatically choose k)
+  -l <int>               specify the number of levels
+                         (default: using cost model to automatically choose l)
+  -b/--buffer <int>      specify the size of buffer pool
+                         (default: 16M)
+  -p/--path <str>        specify the data directory
+                         (default: ./data/)
+  -d/--drive <str>       specify the config file for the drive
+                         (default: ./config/drive.dat)
+  -f/--loadfile <str>    specify the data file for building the index
+                         if -f is specified, ignore -c
+  -q/--queryfile <str>   specify the query file
+                         if -q is specified, ignore -n
+  -r/--ratio <int> <int> <int> <int>
+                         specify the percentage of search, insertion, deletion
+                         and update, respectively (0-100)
+                         (default: 50% search + 50% insertion)
+  -v/--version           print version
+  -h/--help              print this usage message
+
+
+Sample1:
+fdtree.exe --buffer 16M -r 80 20 0 0 -c 1G -n 1M
+
+Perform 1 million queries on an index containing 1 billion entries whose keys are in the range [1, 16M]. The queries consist of 80% searches, 20% insertions, 0% deletions, and 0% updates. The buffer size is 16MB.
+
+Sample2:
+fdtree.exe -b 16M -f load//in.dat -q load//query.dat
+
+Build an index on all entries loaded from the file "load/in.dat", and then perform all queries in the file "load/query.dat"
+
+Data file format:
+A data file contains all entries used to build an index. Each entry consists of a key and a ptr. All entries should be in a sortted order. The format of data file is shown as follows.
+key1<uint32> ptr1<uint32> key2<uint32> ptr2<uint32> key3<uint32> ptr3<uint32> key4<uint32> ptr4<uint32> ...
+(key1 < key2 < key3 < key4 ...) 
+
+Sampel data file:
+1 35432 3 236564 7 256523 13 1344 14 938243
+
+Query file format:
+A query file consists of four kinds of queries shown as follows.
+s key<uint32> -- search
+i key<uint32> ptr<uint32> -- insert
+d key<uint32> -- delete
+u key<uint32> ptr<uint32> -- update
+
+Sample query file:
+s 1
+s 14
+i 4 32543
+s 3
+d 7
+u 3 34653
+ 
