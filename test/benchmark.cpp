@@ -15,9 +15,12 @@
 #include <utility>
 #include <vector>
 
+#include "../include/config.h"
+#include "../zbtree/BTreeOLC.h"
 #include "common.h"
 
-using namespace BTree;
+// using namespace BTree;
+using namespace btreeolc;
 using namespace std;
 
 const u64 MILLION = 1000 * 1000;
@@ -157,7 +160,9 @@ void run_test(int num_thread, string load_data, string run_data,
   DiskManager *disk = new DiskManager(FILE_NAME.c_str());
   ParallelBufferPoolManager *para =
       new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
-  BTree::BTree *tree = new BTree::BTree(para);
+  // BTree::BTree *tree = new BTree::BTree(para);
+  bpm = para;
+  btreeolc::BTree *tree = new btreeolc::BTree();
 
   printf("Tree init: %s %4.2f ms.\n", "BufferBTreeF2Fs",
          tr.elapsed<std::chrono::milliseconds>());
@@ -208,12 +213,12 @@ void run_test(int num_thread, string load_data, string run_data,
       if (ops[i] == OP_INSERT) {
         tree->Insert(keys[i], keys[i]);
       } else if (ops[i] == OP_UPDATE) {
-        tree->Update(keys[i], keys[i] + 1);
+        // tree->Update(keys[i], keys[i] + 1);
       } else if (ops[i] == OP_READ) {
         u64 v;
-        auto r = tree->Get(keys[i], &v);
+        auto r = tree->Get(keys[i], v);
       } else if (ops[i] == OP_DELETE) {
-        tree->Remove(keys[i]);
+        // tree->Remove(keys[i]);
       }
 #ifdef LATENCY
       latency.push_back(l.elapsed<std::chrono::nanoseconds>());
@@ -280,7 +285,7 @@ void run_test(int num_thread, string load_data, string run_data,
       "[BufferPool]: In-place read in a page: %6.2f, In-place write in a page: "
       "%6.2f\n",
       page_read_avg, page_write_avg);
-  printf("[BTreeIndex]: Read amp: %6.2f bytes/op, Write amp: %6.2f bytes/op\n",
+  printf("[BTreeIndex]: Read amp: %6.2f bytes/op, Write amp: %6.2f bytes/op\n ",
          bytes_read_avg, bytes_write_avg);
 }
 

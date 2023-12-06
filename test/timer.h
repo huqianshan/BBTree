@@ -3,7 +3,7 @@
 #include <ratio>
 #include <type_traits>
 
-namespace BTree {
+// namespace BTree {
 
 template <typename T>
 struct is_duration : std::false_type {};
@@ -76,4 +76,4 @@ class Timer {
   /// Time point when the stopwatched started.
   std::chrono::high_resolution_clock::time_point start_;
 };
-}  // namespace BTree
+// }  // namespace BTree

@@ -3,11 +3,11 @@
 log_dir=./test/result/log/
 exe_dir=./build/test/
 
-tree_list=("bbtree")
-bench_list=(ycsba ycsbc ycsbe)
-thread_list=(1)
+tree_list=("btree-olc")
+bench_list=(ycsba ycsbb ycsbc)
+thread_list=(1 2 4 8 16 32 48 56)
 # maxium ops
-threshold_list=(2)
+threshold_list=(20)
 # echo $(pwd)
 # echo ${exe_dir}${tree_list[0]}
 # exit

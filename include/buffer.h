@@ -21,7 +21,7 @@
 #include "page.h"
 #include "storage.h"
 
-namespace BTree {
+// namespace BTree {
 typedef u32 frame_id_t;  // frame id type
 
 /**
@@ -353,4 +353,4 @@ class NodeRAII {
 };
 
 // extern BTree::ParallelBufferPoolManager *bpm;
-}  // namespace BTree
+// }  // namespace BTree
