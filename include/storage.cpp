@@ -41,7 +41,7 @@ void DiskManager::read_n_pages(page_id_t page_id, size_t nr_pages,
   assert_msg(ret > 0, "read failed\n");
 }
 
-DiskManager::DiskManager(const char *db_file) {
+DiskManager::DiskManager(const char *db_file, uint32_t num_instances) {
   int flags = O_CREAT | O_RDWR | O_SYNC | O_TRUNC;
 #ifdef DIRECT_IO
   flags |= O_DIRECT;
@@ -51,16 +51,16 @@ DiskManager::DiskManager(const char *db_file) {
   assert_msg(fd_ > 0, "open");
   write_count_.store(0, std::memory_order_relaxed);
   read_count_.store(0, std::memory_order_relaxed);
+  num_instances_ = num_instances;
 }
 
 DiskManager::~DiskManager() {
   u64 size = get_file_size();
   (void)size;
-  INFO_PRINT(
-      "[Storage] Write_count=%8lu read_count=%8lu PAGES fielsize=%8lu PAGES "
-      "PAGE= %4d "
-      "Bytes\n",
-      write_count_.load(), read_count_.load(), size / PAGE_SIZE, PAGE_SIZE);
+  // INFO_PRINT(
+  //     "[Storage] Write_count=%8lu read_count=%8lu PAGES fielsize=%8lu PAGES "
+  //     "PAGE= %4d Bytes\n",
+  //     write_count_.load(), read_count_.load(), size / PAGE_SIZE, PAGE_SIZE);
   int ret = close(fd_);
   assert_msg(!ret, "close");
 }
@@ -68,14 +68,16 @@ DiskManager::~DiskManager() {
  * Write the contents of the specified page into disk file
  */
 void DiskManager::write_page(page_id_t page_id, const char *page_data) {
-  write_n_pages(page_id, 1, page_data);
+  page_id_t cur_id = page_id / num_instances_;
+  write_n_pages(cur_id, 1, page_data);
 }
 
 /**
  * Read the contents of the specified page into the given memory area
  */
 void DiskManager::read_page(page_id_t page_id, char *page_data) {
-  read_n_pages(page_id, 1, page_data);
+  page_id_t cur_id = page_id / num_instances_;
+  read_n_pages(cur_id, 1, page_data);
 }
 
 u64 DiskManager::get_file_size() {

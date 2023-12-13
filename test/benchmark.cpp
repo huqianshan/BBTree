@@ -24,7 +24,7 @@ using namespace btreeolc;
 using namespace std;
 
 const u64 MILLION = 1000 * 1000;
-
+const std::string TREE_NAME = "BTreeBufferOnExt4SSD";
 // #define LATENCY
 // #define PM_PCM
 #define DRAM_CONSUMPTION
@@ -157,14 +157,14 @@ void run_test(int num_thread, string load_data, string run_data,
   Timer tr;
   tr.start();
 
-  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
-  ParallelBufferPoolManager *para =
-      new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
+  // DiskManager *disk = new DiskManager(FILE_NAME.c_str());
+  ParallelBufferPoolManager *para = new ParallelBufferPoolManager(
+      INSTANCE_SIZE, PAGES_SIZE, FILE_NAME, false);
   // BTree::BTree *tree = new BTree::BTree(para);
   bpm = para;
   btreeolc::BTree *tree = new btreeolc::BTree();
 
-  printf("Tree init: %s %4.2f ms.\n", "BufferBTreeF2Fs",
+  printf("Tree init: %s %4.2f ms.\n", TREE_NAME.c_str(),
          tr.elapsed<std::chrono::milliseconds>());
 
   auto part = LOAD_SIZE / num_thread;
@@ -270,9 +270,9 @@ void run_test(int num_thread, string load_data, string run_data,
   GetDRAMSpace();
 #endif
 
-  auto file_size = disk->get_file_size();
-  auto read_count = disk->get_read_count();
-  auto write_count = disk->get_write_count();
+  auto file_size = para->GetFileSize();
+  auto read_count = para->GetReadCount();
+  auto write_count = para->GetWriteCount();
 
   delete tree;
 
@@ -281,6 +281,10 @@ void run_test(int num_thread, string load_data, string run_data,
   double bytes_read_avg = 1.0 * read_count * PAGE_SIZE / (LOAD_SIZE + RUN_SIZE);
   double bytes_write_avg =
       1.0 * write_count * PAGE_SIZE / (LOAD_SIZE + RUN_SIZE);
+  printf(
+      "[Storage] Write_count=%8lu read_count=%8lu PAGES fielsize=%8lu PAGES "
+      "PAGE= %4d Bytes\n",
+      write_count, read_count, file_size / PAGE_SIZE, PAGE_SIZE);
   printf(
       "[BufferPool]: In-place read in a page: %6.2f, In-place write in a page: "
       "%6.2f\n",

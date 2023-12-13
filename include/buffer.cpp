@@ -399,16 +399,52 @@ ParallelBufferPoolManager::ParallelBufferPoolManager(
   disk_manager_ = disk_manager;
 }
 
-// Update constructor to destruct all BufferPoolManagerInstances and deallocate
-// any associated memory
+ParallelBufferPoolManager::ParallelBufferPoolManager(size_t num_instances,
+                                                     size_t pool_size,
+                                                     std::string file_name,
+                                                     bool is_one_file) {
+  // Allocate and create individual BufferPoolManagerInstances
+  bpmis_.resize(num_instances);
+  num_instances_ = num_instances;
+  index_ = 0;
+  if (is_one_file) {
+    auto tmp_file_name = file_name;
+    auto disk_manager = new DiskManager(tmp_file_name.c_str(), 1);
+    for (size_t i = 0; i < num_instances_; i++) {
+      bpmis_[i] =
+          new BufferPoolManager(pool_size, num_instances_, i, disk_manager);
+    }
+    disk_manager_ = disk_manager;
+  } else {
+    for (size_t i = 0; i < num_instances_; i++) {
+      auto tmp_file_name = file_name + "_" + std::to_string(i);
+      auto disk_manager = new DiskManager(tmp_file_name.c_str(), num_instances);
+      bpmis_[i] =
+          new BufferPoolManager(pool_size, num_instances_, i, disk_manager);
+    }
+    disk_manager_ = nullptr;
+  }
+}
+
+// Update constructor to destruct all BufferPoolManagerInstances and
+// deallocate any associated memory
 ParallelBufferPoolManager::~ParallelBufferPoolManager() {
   Print();
   FlushAllPages();
-  for (auto &buffer : bpmis_) {
-    delete buffer;
-  }
+
   if (disk_manager_) {
     delete disk_manager_;
+  } else {
+    for (auto &buffer : bpmis_) {
+      if (buffer->disk_manager_) {
+        delete buffer->disk_manager_;
+      }
+      buffer->disk_manager_ = nullptr;
+    }
+  }
+
+  for (auto &buffer : bpmis_) {
+    delete buffer;
   }
 }
 
@@ -420,6 +456,28 @@ size_t ParallelBufferPoolManager::GetPoolSize() {
   }
   return total;
 }
+
+u64 ParallelBufferPoolManager::GetFileSize() {
+  u64 total = 0;
+  for (auto &buffer : bpmis_) {
+    total += buffer->disk_manager_->get_file_size();
+  }
+  return total;
+};
+u64 ParallelBufferPoolManager::GetReadCount() {
+  u64 total = 0;
+  for (auto &buffer : bpmis_) {
+    total += buffer->disk_manager_->get_read_count();
+  }
+  return total;
+};
+u64 ParallelBufferPoolManager::GetWriteCount() {
+  u64 total = 0;
+  for (auto &buffer : bpmis_) {
+    total += buffer->disk_manager_->get_write_count();
+  }
+  return total;
+};
 
 BufferPoolManager *ParallelBufferPoolManager::GetBufferPoolManager(
     page_id_t page_id) {
@@ -507,9 +565,9 @@ void ParallelBufferPoolManager::Print() {
     miss += instance->miss_;
     hit += instance->hit_;
   }
-  printf(
-      "Instance Nums:%2lu Page table size:%4lu Replacer size: %4lu"
-      " Free list size: %4lu \n",
+  INFO_PRINT(
+      "[ParaBufferPool] Instance Nums:%2lu Page table size:%4lu Replacer size: "
+      "%4lu Free list size: %4lu \n",
       num_instances_, page_table_size, replacer_size, free_list_size);
 
   double miss_ratio = miss * 100.0 / count;

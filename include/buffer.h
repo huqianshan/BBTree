@@ -239,6 +239,8 @@ class ParallelBufferPoolManager {
   ParallelBufferPoolManager(size_t num_instances, size_t pool_size,
                             DiskManager *disk_manager);
 
+  ParallelBufferPoolManager(size_t num_instances, size_t pool_size,
+                            std::string file_name, bool is_one_file = true);
   /**
    * Destroys an existing ParallelBufferPoolManager.
    */
@@ -299,6 +301,11 @@ class ParallelBufferPoolManager {
    * Flushes all the pages in the buffer pool to disk.
    */
   void FlushAllPages();
+
+  u64 GetFileSize();
+  u64 GetReadCount();
+  u64 GetWriteCount();
+
   void Print();
   std::vector<BufferPoolManager *> bpmis_;
   size_t num_instances_;

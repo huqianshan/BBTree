@@ -9,7 +9,7 @@
 class DiskManager {
  public:
   DiskManager() = delete;
-  DiskManager(const char *db_file);
+  DiskManager(const char *db_file, uint32_t num_instances = 1);
   ~DiskManager();
 
   /**
@@ -28,8 +28,9 @@ class DiskManager {
   u64 get_read_count();
   u64 get_write_count();
 
- private:
+  //  private:
   int fd_;
+  uint32_t num_instances_;
 
   std::string file_name_;
 
