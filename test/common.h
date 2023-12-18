@@ -1,5 +1,5 @@
 #pragma once
-#include "../include/config.h"
+#include "../zbtree/config.h"
 #include "timer.h"
 
 // namespace BTree {

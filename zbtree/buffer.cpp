@@ -1,87 +1,14 @@
-
-
 #include "buffer.h"
 
-#include <cassert>
-
-// namespace BTree {
-
-LRUReplacer::LRUReplacer(size_t num_pages)
-    : dummy_(static_cast<frame_id_t>(num_pages)) {
-  lru_list_ = new Node[num_pages + 1];
-  for (frame_id_t i = 0; i <= dummy_; ++i) {
-    lru_list_[i].next_id_ = i;
-    lru_list_[i].prev_id_ = i;
-  }
-  size_ = 0;
-}
-
-LRUReplacer::~LRUReplacer() { delete[] lru_list_; }
-
-bool LRUReplacer::Victim(frame_id_t *frame_id) {
-  if (size_ == 0) {
-    return false;
-  }
-  *frame_id = lru_list_[dummy_].prev_id_;
-  Invalidate(*frame_id);
-  size_--;
-  return true;
-}
-
-void LRUReplacer::Pin(frame_id_t frame_id) {
-  if (!IsValid(frame_id)) {
-    return;
-  }
-  Invalidate(frame_id);
-  size_--;
-}
-
-void LRUReplacer::Unpin(frame_id_t frame_id) {
-  if (IsValid(frame_id)) {
-    return;
-  }
-  // insert node
-  Add(frame_id);
-  size_++;
-}
-
-size_t LRUReplacer::Size() { return size_; }
-/**
- * @brief
- *
- * @param frame_id
- * @return true: frame_id is in already unpined and in replacer
- * @return false: frame_id is pinned and not in replacer
- */
-bool LRUReplacer::IsValid(frame_id_t frame_id) const {
-  return lru_list_[frame_id].next_id_ != frame_id;
-}
-
-void LRUReplacer::Add(frame_id_t frame_id) {
-  lru_list_[frame_id].next_id_ = lru_list_[dummy_].next_id_;
-  lru_list_[frame_id].prev_id_ = dummy_;
-  lru_list_[lru_list_[dummy_].next_id_].prev_id_ = frame_id;
-  lru_list_[dummy_].next_id_ = frame_id;
-}
-
-void LRUReplacer::Invalidate(frame_id_t frame_id) {
-  lru_list_[lru_list_[frame_id].prev_id_].next_id_ =
-      lru_list_[frame_id].next_id_;
-  lru_list_[lru_list_[frame_id].next_id_].prev_id_ =
-      lru_list_[frame_id].prev_id_;
-  lru_list_[frame_id].prev_id_ = frame_id;
-  lru_list_[frame_id].next_id_ = frame_id;
-}
-
 BufferPoolManager::BufferPoolManager(size_t pool_size,
-                                     DiskManager *disk_manager)
+                                     DiskManager* disk_manager)
     : BufferPoolManager(pool_size, 1, 0, disk_manager) {
   count_ = hit_ = miss_ = 0;
 }
 
 BufferPoolManager::BufferPoolManager(size_t pool_size, uint32_t num_instances,
                                      uint32_t instance_index,
-                                     DiskManager *disk_manager)
+                                     DiskManager* disk_manager)
     : pool_size_(pool_size),
       num_instances_(num_instances),
       instance_index_(instance_index),
@@ -93,7 +20,7 @@ BufferPoolManager::BufferPoolManager(size_t pool_size, uint32_t num_instances,
          "BPI index cannot be greater than the number of BPIs in the "
          "pool. In non-parallel case, index should just be 1.");
   // We allocate a consecutive memory space for the buffer pool.
-  page_data_ = (char *)aligned_alloc(PAGE_SIZE, pool_size_ * PAGE_SIZE);
+  page_data_ = (char*)aligned_alloc(PAGE_SIZE, pool_size_ * PAGE_SIZE);
   assert(((size_t)page_data_ & (PAGE_SIZE - 1)) == 0);
   pages_ = new Page[pool_size_];
   replacer_ = new LRUReplacer(pool_size);
@@ -134,7 +61,7 @@ bool BufferPoolManager::FlushPage(page_id_t page_id) {
   }
 
   frame_id_t cur_frame = page_table_[page_id];
-  Page *cur_page = pages_ + cur_frame;
+  Page* cur_page = pages_ + cur_frame;
   if (cur_page->is_dirty_) {
     disk_manager_->write_page(page_id, cur_page->GetData());
     cur_page->is_dirty_ = false;
@@ -146,13 +73,13 @@ bool BufferPoolManager::FlushPage(page_id_t page_id) {
 // 1. FlushPage内部又有lock guard
 void BufferPoolManager::FlushAllPages() {
   // Lock_guard lk(latch_);
-  for (const auto &key : page_table_) {
+  for (const auto& key : page_table_) {
     // INFO_PRINT("%p flush page:%4u :%4u\n", this, key.first, key.second);
     FlushPage(key.first);
   }
 }
 
-Page *BufferPoolManager::NewPage(page_id_t *page_id) {
+Page* BufferPoolManager::NewPage(page_id_t* page_id) {
   // 1.   If all the pages in the buffer pool are pinned, return nullptr.
   // 2.   Pick a victim page P from either the free list or the replacer. Always
   // pick from the free list first.
@@ -164,7 +91,7 @@ Page *BufferPoolManager::NewPage(page_id_t *page_id) {
   page_id_t tmp_page_id = AllocatePage();
 
   // 3 pick a victim frame from free_lists or replacer
-  Page *ret_page = GrabPageFrame();
+  Page* ret_page = GrabPageFrame();
   VERIFY(ret_page != nullptr);
   frame_id_t cur_frame_id = static_cast<frame_id_t>(ret_page - pages_);
   page_table_[tmp_page_id] = cur_frame_id;
@@ -184,7 +111,7 @@ Page *BufferPoolManager::NewPage(page_id_t *page_id) {
   return ret_page;
 }
 
-Page *BufferPoolManager::FetchPage(page_id_t page_id) {
+Page* BufferPoolManager::FetchPage(page_id_t page_id) {
   // 1.     Search the page table for the requested page (P).
   // 1.1    If P exists, pin it and return it immediately.
   // 1.2    If P does not exist, find a replacement page (R) from either the
@@ -196,7 +123,7 @@ Page *BufferPoolManager::FetchPage(page_id_t page_id) {
   // return a pointer to P.
   GrabLock();
   count_++;
-  Page *ret_page = nullptr;
+  Page* ret_page = nullptr;
 
   if (page_table_.find(page_id) != page_table_.end()) {
     // 1.1
@@ -255,7 +182,7 @@ bool BufferPoolManager::DeletePage(page_id_t page_id) {
 
   // 1 2
   frame_id_t cur_frame_id = page_table_[page_id];
-  Page *cur_page = pages_ + cur_frame_id;
+  Page* cur_page = pages_ + cur_frame_id;
   // if (cur_page->GetPinCount() != 0) {
   //   ReleaseLock();
   //   return false;
@@ -290,7 +217,7 @@ bool BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty) {
   }
   // 1 get page object
   frame_id_t cur_frame_id = page_table_[page_id];
-  Page *cur_page = pages_ + cur_frame_id;
+  Page* cur_page = pages_ + cur_frame_id;
 
   // DEBUG_PRINT("unpin page_id:%4u frame_id:%4u\n", page_id, cur_frame_id);
 
@@ -325,8 +252,8 @@ void BufferPoolManager::ValidatePageId(const page_id_t page_id) const {
   VERIFY(page_id % num_instances_ == instance_index_);
 }
 
-Page *BufferPoolManager::GrabPageFrame() {
-  Page *ret_page = nullptr;
+Page* BufferPoolManager::GrabPageFrame() {
+  Page* ret_page = nullptr;
   frame_id_t cur_frame_id = -1;
   while (true) {
     if (!free_list_.empty()) {
@@ -387,7 +314,7 @@ void BufferPoolManager::PrintBufferPool() {
 }
 
 ParallelBufferPoolManager::ParallelBufferPoolManager(
-    size_t num_instances, size_t pool_size, DiskManager *disk_manager) {
+    size_t num_instances, size_t pool_size, DiskManager* disk_manager) {
   // Allocate and create individual BufferPoolManagerInstances
   bpmis_.resize(num_instances);
   num_instances_ = num_instances;
@@ -435,7 +362,7 @@ ParallelBufferPoolManager::~ParallelBufferPoolManager() {
   if (disk_manager_) {
     delete disk_manager_;
   } else {
-    for (auto &buffer : bpmis_) {
+    for (auto& buffer : bpmis_) {
       if (buffer->disk_manager_) {
         delete buffer->disk_manager_;
       }
@@ -443,7 +370,7 @@ ParallelBufferPoolManager::~ParallelBufferPoolManager() {
     }
   }
 
-  for (auto &buffer : bpmis_) {
+  for (auto& buffer : bpmis_) {
     delete buffer;
   }
 }
@@ -451,7 +378,7 @@ ParallelBufferPoolManager::~ParallelBufferPoolManager() {
 size_t ParallelBufferPoolManager::GetPoolSize() {
   // Get size of all BufferPoolManagerInstances
   size_t total = 0;
-  for (auto &buffer : bpmis_) {
+  for (auto& buffer : bpmis_) {
     total += buffer->GetPoolSize();
   }
   return total;
@@ -459,52 +386,52 @@ size_t ParallelBufferPoolManager::GetPoolSize() {
 
 u64 ParallelBufferPoolManager::GetFileSize() {
   u64 total = 0;
-  for (auto &buffer : bpmis_) {
+  for (auto& buffer : bpmis_) {
     total += buffer->disk_manager_->get_file_size();
   }
   return total;
 };
 u64 ParallelBufferPoolManager::GetReadCount() {
   u64 total = 0;
-  for (auto &buffer : bpmis_) {
+  for (auto& buffer : bpmis_) {
     total += buffer->disk_manager_->get_read_count();
   }
   return total;
 };
 u64 ParallelBufferPoolManager::GetWriteCount() {
   u64 total = 0;
-  for (auto &buffer : bpmis_) {
+  for (auto& buffer : bpmis_) {
     total += buffer->disk_manager_->get_write_count();
   }
   return total;
 };
 
-BufferPoolManager *ParallelBufferPoolManager::GetBufferPoolManager(
+BufferPoolManager* ParallelBufferPoolManager::GetBufferPoolManager(
     page_id_t page_id) {
   // Get BufferPoolManager responsible for handling given page id. You can use
   // this method in your other methods.
   return bpmis_[page_id % num_instances_];
 }
 
-Page *ParallelBufferPoolManager::FetchPage(page_id_t page_id) {
+Page* ParallelBufferPoolManager::FetchPage(page_id_t page_id) {
   // Fetch page for page_id from responsible BufferPoolManager
-  return dynamic_cast<BufferPoolManager *>(GetBufferPoolManager(page_id))
+  return dynamic_cast<BufferPoolManager*>(GetBufferPoolManager(page_id))
       ->FetchPage(page_id);
 }
 
 bool ParallelBufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty) {
   // Unpin page_id from responsible BufferPoolManager
-  return dynamic_cast<BufferPoolManager *>(GetBufferPoolManager(page_id))
+  return dynamic_cast<BufferPoolManager*>(GetBufferPoolManager(page_id))
       ->UnpinPage(page_id, is_dirty);
 }
 
 bool ParallelBufferPoolManager::FlushPage(page_id_t page_id) {
   // Flush page_id from responsible BufferPoolManager
-  return dynamic_cast<BufferPoolManager *>(GetBufferPoolManager(page_id))
+  return dynamic_cast<BufferPoolManager*>(GetBufferPoolManager(page_id))
       ->FlushPage(page_id);
 }
 
-Page *ParallelBufferPoolManager::NewPage(page_id_t *page_id) {
+Page* ParallelBufferPoolManager::NewPage(page_id_t* page_id) {
   // create new page. We will request page allocation in a round robin manner
   // from the underlying BufferPoolManagerInstances
   // 1.   From a starting index of the BPMIs, call NewPageImpl until either 1)
@@ -517,7 +444,7 @@ Page *ParallelBufferPoolManager::NewPage(page_id_t *page_id) {
   size_t start_index = index_;
   size_t loop_index = index_;
   index_ = (index_ + 1) % num_instances_;
-  Page *ret_page = nullptr;
+  Page* ret_page = nullptr;
   while (true) {
     ret_page = bpmis_[loop_index]->NewPage(page_id);
     if (ret_page != nullptr) {
@@ -533,14 +460,14 @@ Page *ParallelBufferPoolManager::NewPage(page_id_t *page_id) {
 
 bool ParallelBufferPoolManager::DeletePage(page_id_t page_id) {
   // Delete page_id from responsible BufferPoolManager
-  return dynamic_cast<BufferPoolManager *>(GetBufferPoolManager(page_id))
+  return dynamic_cast<BufferPoolManager*>(GetBufferPoolManager(page_id))
       ->DeletePage(page_id);
 }
 
 void ParallelBufferPoolManager::FlushAllPages() {
   // flush all pages from all BufferPoolManagerInstances
-  for (auto &buffer : bpmis_) {
-    auto instance = dynamic_cast<BufferPoolManager *>(buffer);
+  for (auto& buffer : bpmis_) {
+    auto instance = dynamic_cast<BufferPoolManager*>(buffer);
     instance->FlushAllPages();
   }
 }
@@ -554,8 +481,8 @@ void ParallelBufferPoolManager::Print() {
   u64 miss = 0;
   u64 hit = 0;
 
-  for (auto &buffer : bpmis_) {
-    auto instance = dynamic_cast<BufferPoolManager *>(buffer);
+  for (auto& buffer : bpmis_) {
+    auto instance = dynamic_cast<BufferPoolManager*>(buffer);
     // instance->PrintBufferPool();
     page_table_size += instance->page_table_.size();
     replacer_size += instance->replacer_->Size();
@@ -575,6 +502,3 @@ void ParallelBufferPoolManager::Print() {
   printf("BufferPool count:%4lu miss: %4lu %2.2lf%% hit: %4lu %2.2lf%%\n",
          count, miss, miss_ratio, hit, hit_ratio);
 }
-
-// extern BTree::ParallelBufferPoolManager *bpm;
-// }  // namespace BTree

@@ -15,10 +15,9 @@
 #include <utility>
 #include <vector>
 
-#include "../include/config.h"
-#include "../zbtree/BTreeOLC.h"
+#include "../zbtree/buffer.h"
+#include "../zbtree/zbtree.h"
 #include "common.h"
-
 // using namespace BTree;
 using namespace btreeolc;
 using namespace std;
@@ -161,8 +160,7 @@ void run_test(int num_thread, string load_data, string run_data,
   ParallelBufferPoolManager *para = new ParallelBufferPoolManager(
       INSTANCE_SIZE, PAGES_SIZE, FILE_NAME, false);
   // BTree::BTree *tree = new BTree::BTree(para);
-  bpm = para;
-  btreeolc::BTree *tree = new btreeolc::BTree();
+  btreeolc::BTree *tree = new btreeolc::BTree(para);
 
   printf("Tree init: %s %4.2f ms.\n", TREE_NAME.c_str(),
          tr.elapsed<std::chrono::milliseconds>());
@@ -321,14 +319,18 @@ int main(int argc, char **argv) {
 
   remove(FILE_NAME.c_str());
 
-  auto [read_reg_before, written_reg_before] = getDataUnits(REGURLAR_DEVICE);
-  auto [read_zone_before, written_zone_before] = getDataUnits(ZNS_DEVICE);
+  auto read_reg_before = 0, written_reg_before = 0;
+  std::tie(read_reg_before, written_reg_before) = getDataUnits(REGURLAR_DEVICE);
+  auto read_zone_before = 0, written_zone_before = 0;
+  std::tie(read_zone_before, written_zone_before) = getDataUnits(ZNS_DEVICE);
 
   run_test(num_thread, load_data, run_data, workload, max_load_size,
            max_run_size);
 
-  auto [read_reg, written_reg] = getDataUnits(REGURLAR_DEVICE);
-  auto [read_zone, written_zone] = getDataUnits(ZNS_DEVICE);
+  auto read_reg = 0, written_reg = 0;
+  std::tie(read_reg, written_reg) = getDataUnits(REGURLAR_DEVICE);
+  auto read_zone = 0, written_zone = 0;
+  std::tie(read_zone, written_zone) = getDataUnits(ZNS_DEVICE);
 
   auto read_total_reg = static_cast<u64>(read_reg - read_reg_before);
   auto write_total_reg = static_cast<u64>(written_reg - written_reg_before);

@@ -1,26 +1,42 @@
-cmake_minimum_required(VERSION 3.16)
-include_directories(../include)
-file(GLOB BTREE_CPPS "../include/*.cpp")
+cmake_minimum_required(VERSION 3.14)
+project(TestBBTree)
 
-set(CMAKE_CXX_FLAGS "-std=c++1z")
+include_directories(../zbtree)
+include_directories(../zns)
+file(GLOB ZBTREE_CPPS "../zbtree/*.cpp")
+file(GLOB ZNS_CPPS "../zns/*.cpp")
+
+set(CMAKE_CXX_FLAGS "-std=c++11 ")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -mavx512f -DNDEBUG")
 set(CMAKE_CXX_FLAGS_DEBUG "-g3 -march=native ")
 
-add_executable(runUnitTests
-        gtest.cpp
-        insert_delete_test.cpp ../zbtree/BTreeOLC.h 
-         ${BTREE_CPPS})
+include(FetchContent)
+FetchContent_Declare(
+  googletest
+  # Specify the commit you depend on and update it regularly.
+  URL https://github.com/google/googletest/archive/5376968f6948923e2411081fd9372e71a59d8e77.zip
+)
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
 
-target_link_libraries(runUnitTests
-        gtest
-        pthread)
+# Now simply link against gtest or gtest_main as needed. Eg
+add_executable(UnitTests insert_delete_test.cpp ${ZBTREE_CPPS} ${ZNS_CPPS})
+target_link_libraries(UnitTests gtest_main pthread zbd)
+add_test(NAME runUnitTests COMMAND UnitTests)
 
-# set(CMAKE_CXX_FLAGS_DEBUG "-g -O3 -march=native -DDEBUG")
 
-add_executable(btree-olc benchmark.cpp ../zbtree/BTreeOLC.h    ${BTREE_CPPS})
+add_executable(btree-olc benchmark.cpp ${ZBTREE_CPPS} ${ZNS_CPPS})
 target_link_libraries(btree-olc
         jemalloc
-        pthread)
+        pthread
+        zbd)
 
 
-add_executable(smart smart.cpp    ${BTREE_CPPS})
+add_executable(zns_test ztest.cpp ${ZNS_CPPS} )
+target_link_libraries(zns_test
+        jemalloc
+        pthread
+        zbd)
+
+# add_executable(smart smart.cpp )

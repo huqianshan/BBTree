@@ -1,71 +1,13 @@
-//===----------------------------------------------------------------------===//
-//
-//                         BusTub
-//
-// buffer_pool_manager.h
-//
-// Identification: src/include/buffer/buffer_pool_manager.h
-//
-// Copyright (c) 2015-2021, Carnegie Mellon University Database Group
-//
-//===----------------------------------------------------------------------===//
-
 #pragma once
-
 #include <list>
+#include <mutex>
 #include <mutex>  // NOLINT
 #include <unordered_map>
 #include <vector>
 
-#include "config.h"
 #include "page.h"
+#include "replacer.h"
 #include "storage.h"
-
-// namespace BTree {
-typedef u32 frame_id_t;  // frame id type
-
-/**
- * LRUReplacer implements the Least Recently Used replacement policy.
- */
-class LRUReplacer {
- public:
-  /**
-   * Create a new LRUReplacer.
-   * @param num_pages the maximum number of pages the LRUReplacer will be
-   * required to store
-   */
-  explicit LRUReplacer(size_t num_pages);
-
-  /**
-   * Destroys the LRUReplacer.
-   */
-  ~LRUReplacer();
-
-  bool Victim(frame_id_t *frame_id);
-
-  void Pin(frame_id_t frame_id);
-
-  void Unpin(frame_id_t frame_id);
-
-  size_t Size();
-
- private:
-  // LRU list node
-  struct Node {
-    frame_id_t prev_id_;
-    frame_id_t next_id_;
-  };
-  const frame_id_t dummy_;
-  size_t size_;
-  // LRU list has a dummy head node
-  Node *lru_list_;
-  // page frame exists in the replacer
-  bool IsValid(frame_id_t frame_id) const;
-  // remove node
-  void Invalidate(frame_id_t frame_id);
-  // insert node at MRU end
-  void Add(frame_id_t frame_id);
-};
 
 /**
  * BufferPoolManager reads disk pages to and from its internal buffer pool.
@@ -350,6 +292,13 @@ class NodeRAII {
   Page *GetPage() { return page_; }
   page_id_t GetPageId() { return page_id_; }
   void SetDirty(bool is_dirty) { dirty_ = is_dirty; }
+  bool SetLeafPtr(void *leaf_ptr) {
+    if (page_ != nullptr) {
+      page_->SetLeafPtr(leaf_ptr);
+      return true;
+    }
+    return false;
+  }
 
  private:
   ParallelBufferPoolManager *buffer_pool_manager_;
@@ -358,6 +307,3 @@ class NodeRAII {
   void *node_ = nullptr;
   bool dirty_;
 };
-
-// extern BTree::ParallelBufferPoolManager *bpm;
-// }  // namespace BTree
