@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <list>
 #include <mutex>
 #include <mutex>  // NOLINT
@@ -150,6 +151,7 @@ class BufferPoolManager {
   DiskManager *disk_manager_;
   /** Page table for keeping track of buffer pool pages. */
   std::unordered_map<page_id_t, frame_id_t> page_table_;
+  std::unordered_map<page_id_t, frame_id_t> page_id_counts_;
   /** Replacer to find unpinned pages for replacement. */
   LRUReplacer *replacer_;
   /** List of free pages. */

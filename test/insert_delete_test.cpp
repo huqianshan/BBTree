@@ -6,7 +6,8 @@
 #include <random>
 #include <vector>
 
-#include "../zbtree/BTreeOLC.h"
+#include "../zbtree/buffer.h"
+#include "../zbtree/zbtree.h"
 #include "common.h"
 // namespace BTree {
 
@@ -16,8 +17,8 @@ TEST(BTreeCRUDTest1, 1_InsertSeq) {
   ParallelBufferPoolManager *para =
       new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
   // BTree::BTree *tree = new BTree::BTree(para);
-  btreeolc::bpm = para;
-  btreeolc::BTree *btree = new btreeolc::BTree();
+  // btreeolc::bpm = para;
+  btreeolc::BTree *btree = new btreeolc::BTree(para);
 
   int key_nums = 199;
   std::vector<u64> keys(key_nums);
@@ -53,8 +54,8 @@ TEST(BTreeCRUDTest1, 2_InsertRandom) {
   ParallelBufferPoolManager *para =
       new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
   // BTree::BTree *tree = new BTree::BTree(para);
-  btreeolc::bpm = para;
-  btreeolc::BTree *btree = new btreeolc::BTree();
+  // btreeolc::bpm = para;
+  btreeolc::BTree *btree = new btreeolc::BTree(para);
 
   int key_nums = 1024;
   std::vector<int> keys(key_nums);

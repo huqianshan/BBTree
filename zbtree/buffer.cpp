@@ -36,6 +36,7 @@ BufferPoolManager::BufferPoolManager(size_t pool_size, uint32_t num_instances,
   ret = pthread_cond_init(&cond_, nullptr);
   VERIFY(!ret);
   count_ = hit_ = miss_ = 0;
+  // page_id_counts_.reserve(2000 * 1000);
 }
 
 BufferPoolManager::~BufferPoolManager() {
@@ -104,6 +105,7 @@ Page* BufferPoolManager::NewPage(page_id_t* page_id) {
 
   // DEBUG_PRINT("new page_id:%4u frame_id:%4u\n", tmp_page_id, cur_frame_id);
   // new page is not hit, add miss
+  page_id_counts_[tmp_page_id] = 1;
   miss_++;
   count_++;
 
@@ -133,7 +135,7 @@ Page* BufferPoolManager::FetchPage(page_id_t page_id) {
     ret_page->pin_count_++;
     replacer_->Pin(cur_frame_id);
     // DEBUG_PRINT("fetch page_id:%4u frame_id:%4u\n", page_id, cur_frame_id);
-
+    page_id_counts_[page_id]++;
     hit_++;
 
     ReleaseLock();
@@ -481,6 +483,7 @@ void ParallelBufferPoolManager::Print() {
   u64 miss = 0;
   u64 hit = 0;
 
+  u64 total = 0;
   for (auto& buffer : bpmis_) {
     auto instance = dynamic_cast<BufferPoolManager*>(buffer);
     // instance->PrintBufferPool();
@@ -491,7 +494,32 @@ void ParallelBufferPoolManager::Print() {
     count += instance->count_;
     miss += instance->miss_;
     hit += instance->hit_;
+    total += instance->page_id_counts_.size();
   }
+
+  std::vector<page_id_t> page_ids;
+  page_ids.reserve(total);
+  for (auto& buffer : bpmis_) {
+    auto instance = dynamic_cast<BufferPoolManager*>(buffer);
+    for (auto& count : instance->page_id_counts_) {
+      page_ids.push_back(count.second);
+    }
+  }
+  std::sort(page_ids.begin(), page_ids.end());
+  size_t avg = 0;
+  for (size_t i = 0; i < total; i++) {
+    avg += page_ids[i];
+  }
+  avg /= total;
+  auto sz = total;
+  INFO_PRINT("[BufferPool] Count: %3lu  hits\n", avg);
+  std::vector<float> percentiles = {0.0, 0.1, 0.2, 0.3, 0.4,   0.5,
+                                    0.6, 0.7, 0.8, 0.9, 0.999, 0.99999};
+  for (auto& p : percentiles) {
+    INFO_PRINT("[BufferPool] Percentile: %2.2lf%% %4u\n", p * 100,
+               page_ids[size_t(p * sz)]);
+  }
+
   INFO_PRINT(
       "[ParaBufferPool] Instance Nums:%2lu Page table size:%4lu Replacer size: "
       "%4lu Free list size: %4lu \n",
