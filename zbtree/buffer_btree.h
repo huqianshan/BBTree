@@ -305,7 +305,6 @@ namespace buffer_btree
         std::atomic<NodeBase *> root;
         std::atomic<uint64_t> leaf_count;
         std::atomic<bool> full;
-        std::atomic<uint64_t> using_count;
         std::shared_ptr<BTree> device_tree;
         using leaf_type = BTreeLeaf<Key, Value>;
         using inner_type = BTreeInner<Key>;
@@ -313,9 +312,8 @@ namespace buffer_btree
         explicit BufferBTreeImp(std::shared_ptr<BTree> device_tree) : device_tree(device_tree)
         {
             root = new BTreeLeaf<Key, Value>();
-            leaf_count = 1;
+            leaf_count = 0;
             full = false;
-            using_count = 0;
         }
 
         void makeRoot(Key k, NodeBase *leftChild, NodeBase *rightChild)
@@ -441,7 +439,6 @@ namespace buffer_btree
                 // Split
                 Key sep;
                 BTreeLeaf<Key, Value> *newLeaf = leaf->split(sep);
-                leaf_count++;
                 if (parent)
                     parent->insert(sep, newLeaf);
                 else
@@ -466,6 +463,10 @@ namespace buffer_btree
                         node->writeUnlock();
                         goto restart;
                     }
+                }
+                if(leaf->count == 0)
+                {
+                    leaf_count++;
                 }
                 leaf->insert(k, v);
                 node->writeUnlock();
@@ -494,6 +495,7 @@ namespace buffer_btree
         {
             std::pair<vec_type, vec_type> ret = distinguish_leaves(root);
             vec_type flush_leaf = std::move(ret.first);
+            // mark flush leaf node as obsolete
             vec_type keep_leaf = std::move(ret.second);
             // todo
             // merge insert leaf operation
@@ -504,34 +506,42 @@ namespace buffer_btree
                     device_tree->Insert(leaf->keys[i], leaf->payloads[i]);
                 }
             }
+            delete_nodes(flush_leaf);
             return keep_leaf;
         }
 
         void flush_all()
         {
-            std::pair<vec_type, vec_type> ret = distinguish_leaves(root);
-            vec_type flush_leaf = std::move(ret.first);
-            vec_type keep_leaf = std::move(ret.second);
-            // todo
-            // merge insert leaf operation
-            for(auto leaf : flush_leaf)
-            {
-                for(int i = 0; i < leaf->count; i++)
+            std::function<void(NodeBase*)> dfs = [&](NodeBase* node) {
+                if(node == nullptr)
+                    return;
+                if(node->type == PageType::BTreeInner)
                 {
-                    device_tree->Insert(leaf->keys[i], leaf->payloads[i]);
+                    inner_type* inner = (inner_type*)node;
+                    for(int i = 0; i < inner->count; i++)
+                    {
+                        dfs(inner->children[i]);
+                    }
                 }
-            }
-            for(auto leaf : keep_leaf)
-            {
-                for(int i = 0; i < leaf->count; i++)
+                else
                 {
-                    device_tree->Insert(leaf->keys[i], leaf->payloads[i]);
+                    leaf_type* leaf = (leaf_type*)node;
+                    // todo
+                    // flash leaf at once
+                    for(int i = 0; i < leaf->count; i++)
+                    {
+                        device_tree->Insert(leaf->keys[i], leaf->payloads[i]);
+                    }
+                    leaf->count = 0;
+                    leaf->access_count = 0;
                 }
-            }
+            };
+            dfs(root.load());
         }
 
     private:
         // return flush_leaf and keep_leaf
+        // now we keep keep_leaf empty because we only delete flush_leaf
         std::pair<vec_type, vec_type> distinguish_leaves(NodeBase *node)
         {
             pq_type pq;
@@ -563,12 +573,28 @@ namespace buffer_btree
                 pq.push(leaf);
                 if(pq.size() > max_leaf_count - keep_leaf_count)
                 {
-                    another.push_back(pq.top());
+                    // another.push_back(pq.top());
+                    auto top = pq.top();
                     pq.pop();
+                    // half leaf access count to avoid starvation
+                    top->access_count /= 2;
                 }
             }
         }
 
+        void delete_nodes(vec_type& nodes)
+        {
+            for(auto node : nodes)
+            {
+                delete_node(node);
+            }
+        }
+        void delete_node(leaf_type* leaf)
+        {
+            leaf->count = 0;
+            leaf->access_count = 0;
+            leaf_count--;
+        }
     public:
         bool lookup(Key k, Value &result)
         {
@@ -740,16 +766,16 @@ namespace buffer_btree
                         printf("leaf: %d, count: %d, access count %d\n", leaf_cnt++, leaf->count, leaf->access_count);
                     }
 #endif
-                    std::unique_ptr<BufferBTreeImp<Key, Value>> old_tree(current);
-                    current = nullptr;
-                    current = new BufferBTreeImp<Key, Value>(device_tree);
-                    for(auto leaf : keep_leaf)
-                    {
-                        for(int i = 0; i < leaf->count; i++)
-                        {
-                            current->insert(leaf->keys[i], leaf->payloads[i]);
-                        }
-                    }
+                    // std::unique_ptr<BufferBTreeImp<Key, Value>> old_tree(current);
+                    // current = nullptr;
+                    // current = new BufferBTreeImp<Key, Value>(device_tree);
+                    // for(auto leaf : keep_leaf)
+                    // {
+                    //     for(int i = 0; i < leaf->count; i++)
+                    //     {
+                    //         current->insert(leaf->keys[i], leaf->payloads[i]);
+                    //     }
+                    // }
                 }
                 u_lock.unlock();
                 goto restart_insert;
@@ -813,6 +839,9 @@ namespace buffer_btree
     };
 
 }
+
+template <class Key, class Value>
+using BufferBTree = buffer_btree::BufferBTree<Key, Value>;
 }
 
 #endif
