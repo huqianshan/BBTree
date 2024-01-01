@@ -6,7 +6,7 @@ endif(POLICY CMP0048)
 project(BBTree VERSION 0.1)
 
 # specify the C++ standard
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
 if(NOT CMAKE_BUILD_TYPE)
@@ -19,7 +19,7 @@ endif()
 ##
 ## compiler flags
 ##
-set(CMAKE_CXX_FLAGS "-Wall -Werror -pthread -std=c++1z")
+set(CMAKE_CXX_FLAGS "-Wall -Werror -pthread -std=c++17")
 set(CMAKE_CXX_FLAGS_DEBUG "-O2 -g3 -fno-inline -fno-omit-frame-pointer") #-fsanitize=leak,address,undefined
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
