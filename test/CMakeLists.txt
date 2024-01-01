@@ -40,3 +40,10 @@ target_link_libraries(zns_test
         zbd)
 
 # add_executable(smart smart.cpp )
+
+# test buffer btree
+add_executable(bench_buffer bench_buffer.cpp ${ZBTREE_CPPS})
+target_link_libraries(bench_buffer
+        jemalloc
+        pthread
+        zbd)
