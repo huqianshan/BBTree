@@ -194,8 +194,8 @@ void run_test(int num_thread, string load_data, string run_data,
     // btreeolc::BTree *device_tree = new btreeolc::BTree(para);
     std::shared_ptr<btreeolc::BTree> device_tree =
         std::make_shared<btreeolc::BTree>(para);
-    std::shared_ptr<btreeolc::buffer_btree::BufferBTree<KeyType, ValueType>> tree(
-        new btreeolc::buffer_btree::BufferBTree<KeyType, ValueType>(device_tree));
+    std::shared_ptr<btreeolc::BufferBTree<KeyType, ValueType>> tree(
+        new btreeolc::BufferBTree<KeyType, ValueType>(device_tree));
 
     printf("Tree init: %s %4.2f ms.\n", TREE_NAME.c_str(),
            tr.elapsed<std::chrono::milliseconds>());
