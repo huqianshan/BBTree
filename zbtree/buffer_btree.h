@@ -532,8 +532,9 @@ namespace buffer_btree
                     {
                         device_tree->Insert(leaf->keys[i], leaf->payloads[i]);
                     }
-                    leaf->count = 0;
-                    leaf->access_count = 0;
+                    // leaf->count = 0;
+                    // leaf->access_count = 0;
+                    delete_node(leaf);
                 }
             };
             dfs(root.load());
