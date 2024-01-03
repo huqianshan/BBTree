@@ -3,7 +3,7 @@
 PERF=/data/konna/share/kernel/linux-5.15/tools/perf/perf
 FLAME=/home/hjl/Tools/FlameGraph/
 # sudo sysctl kernel.perf_event_paranoid=-1
-${PERF} record -g -F 1000 "$@"
+${PERF} record -g -F 10000 "$@"
 ${PERF} script >tmp.perf
 ${FLAME}stackcollapse-perf.pl tmp.perf >tmp.folded
 ${FLAME}flamegraph.pl tmp.folded >graph_perf"_"${2}"_"${3}"trds_"${4}"M".svg

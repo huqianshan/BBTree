@@ -3,6 +3,7 @@
 #include <list>
 #include <mutex>
 #include <mutex>  // NOLINT
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -153,7 +154,8 @@ class BufferPoolManager {
   std::unordered_map<page_id_t, frame_id_t> page_table_;
   std::unordered_map<page_id_t, frame_id_t> page_id_counts_;
   /** Replacer to find unpinned pages for replacement. */
-  LRUReplacer *replacer_;
+  // LRUReplacer *replacer_;
+  FIFOReplacer *replacer_;
   /** List of free pages. */
   std::list<frame_id_t> free_list_;
   /** This latch protects shared data structures. We recommend updating this
@@ -255,6 +257,168 @@ class ParallelBufferPoolManager {
   size_t num_instances_;
   std::atomic<size_t> index_;
   DiskManager *disk_manager_;
+};
+
+typedef std::pair<Page *, u64> Slot;
+
+#include <condition_variable>
+
+class CircleFlusher {
+ public:
+  CircleFlusher(DiskManager *disk_manager, u64 flush_size)
+      : disk_manager_(disk_manager), flush_size_(flush_size), stop_(false) {
+    flush_pages_ = new CircleBuffer<Slot>(flush_size_);
+    flush_thread_ = std::thread([this] { this->FlushThread(); });
+  }
+
+  ~CircleFlusher() {
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      stop_ = true;
+      cv_.notify_all();
+    }
+    flush_thread_.join();
+    delete flush_pages_;
+  }
+
+  void AddPage(Slot slot) {
+    while (!flush_pages_->Push(slot)) {
+      // _mm_pause();
+      // std::this_thread::sleep_for(std::chrono::microseconds(1));
+    }
+    // cv_.notify_one();
+  }
+
+  void FlushThread() {
+    while (true) {
+      std::unique_lock<std::mutex> lock(mutex_);
+      cv_.wait(lock, [this] { return stop_ || !flush_pages_->IsEmpty(); });
+      if (stop_ && flush_pages_->IsEmpty()) {
+        return;
+      }
+      FlushPage();
+    }
+  }
+
+  void FlushPage() {
+    Slot slot;
+    bool ret = flush_pages_->Pop(slot);
+    // no need to check ret.
+    if (!ret) {
+      return;
+    }
+    Page *page = slot.first;
+    u64 length = slot.second;
+    while (page->GetPinCount() != 0) {
+      // _mm_pause();
+      // std::this_thread::sleep_for(std::chrono::microseconds(1));
+    }
+    disk_manager_->write_n_pages(page->GetPageId(), length, page->GetData());
+    free(page->GetData());
+    delete page;
+  }
+
+ private:
+  u64 flush_size_;
+  u64 begin_ = 0;
+  CircleBuffer<Slot> *flush_pages_;
+  DiskManager *disk_manager_;
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  std::thread flush_thread_;
+  bool stop_;
+};
+
+class FIFOBatchBufferPool {
+ public:
+  explicit FIFOBatchBufferPool(size_t pool_size, DiskManager *disk_manager);
+
+  ~FIFOBatchBufferPool();
+
+  /**
+   * @brief if exists in batchbuffer  pool no need to modify the page_id.
+   * if not then need update the page_id
+   */
+  Page *FetchPage(page_id_t *page_id);
+  /**
+   * @brief add lock
+   */
+  Page *NewPage(page_id_t *page_id, u64 length = 1);
+  /**
+   * @brief no lock
+   */
+  Page *FIFOBatchBufferPool::NewPageImp(page_id_t *page_id, u64 length = 1);
+  bool UnpinPage(page_id_t page_id, u64 length, bool is_dirty);
+  bool DeletePage(page_id_t page_id, u64 length);
+  bool FlushPage(page_id_t page_id, u64 length);
+
+  Page *GrabPageFrame(u64 length = 1);
+
+  u64 AllocatePageId() {
+    if (cur_wp_ < max_wp_) {
+      return cur_wp_++;
+    } else {
+      return INVALID_PAGE_ID;
+    }
+  }
+
+  bool EnoughPageId(u64 length) {
+    if (cur_wp_ + length <= max_wp_) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+
+  void Pin(frame_id_t frame_id);
+
+  void Unpin(frame_id_t frame_id);
+
+  void GrabLock() {
+    int ret = pthread_mutex_lock(&mutex_);
+    VERIFY(!ret);
+  }
+
+  void ReleaseLock() {
+    int ret = pthread_mutex_unlock(&mutex_);
+    VERIFY(!ret);
+  }
+
+  void SignalForFreeFrame() {
+    int ret = pthread_cond_signal(&cond_);
+    VERIFY(!ret);
+  }
+
+  void WaitForFreeFrame() {
+    int ret = pthread_cond_wait(&cond_, &mutex_);
+    VERIFY(!ret);
+  }
+  size_t Size();
+  void Print();
+
+ private:
+  FIFOBacthReplacer *replacer_;
+  std::unordered_map<page_id_t, Page *> page_table_;
+  std::unordered_map<page_id_t, frame_id_t> page_id_counts_;
+  /** Pointer to the disk manager. */
+  DiskManager *disk_manager_;
+  CircleFlusher *flusher_;
+  u64 pool_size_;
+  u64 cur_wp_;
+  u64 max_wp_;
+
+  // big lock for buffer pool manager instance
+  pthread_mutex_t mutex_;
+  pthread_cond_t cond_;
+
+  // count
+  u64 count_;
+  u64 hit_;
+  u64 miss_;
+  // page frame exists in the replacer
+  bool IsValid(frame_id_t frame_id) const;
+  // remove node
+  void Invalidate(frame_id_t frame_id);
 };
 
 class NodeRAII {

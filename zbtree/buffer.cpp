@@ -23,7 +23,8 @@ BufferPoolManager::BufferPoolManager(size_t pool_size, uint32_t num_instances,
   page_data_ = (char*)aligned_alloc(PAGE_SIZE, pool_size_ * PAGE_SIZE);
   assert(((size_t)page_data_ & (PAGE_SIZE - 1)) == 0);
   pages_ = new Page[pool_size_];
-  replacer_ = new LRUReplacer(pool_size);
+  // replacer_ = new LRUReplacer(pool_size);
+  replacer_ = new FIFOReplacer(pool_size);
 
   // Initially, every page is in the free list.
   for (size_t i = 0; i < pool_size_; ++i) {
@@ -268,6 +269,10 @@ Page* BufferPoolManager::GrabPageFrame() {
     } else if (replacer_->Victim(&cur_frame_id)) {
       // 2. then find in replacer
       ret_page = pages_ + cur_frame_id;
+      while (ret_page->pin_count_ != 0) {
+        //  WaitForFreeFrame();
+      }
+      replacer_->Remove(cur_frame_id);
       if (ret_page->is_dirty_) {
         // flush raw page
         disk_manager_->write_page(ret_page->GetPageId(), ret_page->GetData());
@@ -529,4 +534,177 @@ void ParallelBufferPoolManager::Print() {
   double hit_ratio = hit * 100.0 / count;
   printf("BufferPool count:%4lu miss: %4lu %2.2lf%% hit: %4lu %2.2lf%%\n",
          count, miss, miss_ratio, hit, hit_ratio);
+}
+
+FIFOBatchBufferPool::FIFOBatchBufferPool(size_t pool_size,
+                                         DiskManager* disk_manager) {
+  // Allocate and create individual BufferPoolManagerInstances
+  replacer_ = new FIFOBacthReplacer(pool_size);
+  page_table_.reserve(pool_size);
+  disk_manager_ = disk_manager;
+  pool_size_ = pool_size;
+  flusher_ = new CircleFlusher(disk_manager, CIRCLE_FLUSHER_SIZE);
+  cur_wp_ = 0;
+  max_wp_ = 1024ull * 1024 * 1024;
+
+  int ret = pthread_mutex_init(&mutex_, nullptr);
+  VERIFY(!ret);
+  ret = pthread_cond_init(&cond_, nullptr);
+  VERIFY(!ret);
+  count_ = hit_ = miss_ = 0;
+}
+
+FIFOBatchBufferPool::~FIFOBatchBufferPool() {
+  if (replacer_) {
+    delete replacer_;
+  }
+  if (disk_manager_) {
+    delete disk_manager_;
+  }
+}
+
+size_t FIFOBatchBufferPool::Size() {
+  // Get size of all BufferPoolManagerInstances
+  return replacer_->Size();
+}
+
+Page* FIFOBatchBufferPool::GrabPageFrame(u64 length) {
+  Page* ret_page = nullptr;
+  Item* cur_item = nullptr;
+  // while (true) {
+  if (!replacer_->IsFull()) {
+    Page* tmp_page = new Page[length];
+    char* page_data = (char*)aligned_alloc(PAGE_SIZE, length * PAGE_SIZE);
+    for (u64 i = 0; i < length; i++) {
+      tmp_page[i].SetData(page_data + i * PAGE_SIZE);
+    }
+    return tmp_page;
+  } else if (replacer_->Victim(cur_item)) {
+    // 2. then find in replacer
+    ret_page = reinterpret_cast<Page*>(cur_item->data_);
+    u64 length = cur_item->length;
+    flusher_->AddPage({ret_page, length});
+    page_table_.erase(ret_page->GetPageId());
+    Page* tmp_page = new Page[length];
+    char* page_data = (char*)aligned_alloc(PAGE_SIZE, length * PAGE_SIZE);
+    for (u64 i = 0; i < length; i++) {
+      tmp_page[i].SetData(page_data + i * PAGE_SIZE);
+    }
+    return tmp_page;
+    // if hot add to lru read buffer
+    // DEBUG_PRINT("grab in replacer page_id:%4u frame_id:%4u\n",
+    //             ret_page->GetPageId(), cur_frame_id);
+  }
+  // if (ret_page != nullptr) {
+  // break;
+  // }
+  // XXX: timed wait?
+  // reset the next page id?
+  // WaitForFreeFrame();
+  // }
+  // return ret_page;
+}
+
+Page* FIFOBatchBufferPool::NewPage(page_id_t* page_id, u64 length) {
+  GrabLock();
+  auto ret_page = NewPageImp(page_id, length);
+  ReleaseLock();
+  return ret_page;
+}
+
+Page* FIFOBatchBufferPool::NewPageImp(page_id_t* page_id, u64 length) {
+  if (EnoughPageId(length)) {
+    exit(-1);
+    return nullptr;
+  }
+  for (u64 i = 0; i < length; i++) {
+    page_id[i] = AllocatePageId();
+  }
+  Page* ret_page = GrabPageFrame(length);
+
+  Item* tem_item = nullptr;
+  auto ret = replacer_->Add(page_id[0], tem_item, length,
+                            reinterpret_cast<char*>(ret_page));
+  if (!ret) {
+    exit(-1);
+  }
+
+  for (u64 i = 0; i < length; i++) {
+    ret_page[i].page_id_ = page_id[i];
+    ret_page[i].pin_count_ = 1;
+    ret_page[i].is_dirty_ = true;
+    // ret_page[i].ResetMemory();
+    ret_page[i].page_id_ = page_id[i];
+    page_table_[page_id[i]] = ret_page + i;
+
+    page_id_counts_[page_id[i]] = 1;
+    miss_++;
+    count_++;
+  }
+  return ret_page;
+}
+
+Page* FIFOBatchBufferPool::FetchPage(page_id_t* page_id) {
+  GrabLock();
+  count_++;
+  Page* ret_page = nullptr;
+
+  if (page_table_.find(*page_id) != page_table_.end()) {
+    // 1.1
+    // frame_id_t cur_frame_id = page_table_[*page_id];
+    ret_page = page_table_[*page_id];
+    // need update pin_count and notify the lru replacer;
+    ret_page->pin_count_++;
+    // replacer_->Pin();
+    // DEBUG_PRINT("fetch *page_id:%4u frame_id:%4u\n", *page_id, cur_frame_id);
+    page_id_counts_[*page_id]++;
+    hit_++;
+
+    ReleaseLock();
+    return ret_page;
+  }
+  miss_++;
+
+  page_id_t tmp_page_id = INVALID_PAGE_ID;
+  ret_page = NewPage(&tmp_page_id);
+  disk_manager_->read_page(*page_id, ret_page->data_);
+
+  ReleaseLock();
+  return ret_page;
+}
+
+bool FIFOBatchBufferPool::UnpinPage(page_id_t page_id, bool is_dirty) {
+  GrabLock();
+
+  // 0 Make sure you can unpin page_id
+  if (page_table_.find(page_id) == page_table_.end()) {
+    ReleaseLock();
+    return true;
+  }
+  // 1 get page object
+  // frame_id_t cur_frame_id = page_table_[page_id];
+  Page* cur_page = page_table_[page_id];
+
+  // DEBUG_PRINT("unpin page_id:%4u frame_id:%4u\n", page_id, cur_frame_id);
+
+  if (is_dirty) {
+    // if page is dirty but is_dirty indicates non-dirty,
+    // it also should be dirty
+    cur_page->is_dirty_ |= is_dirty;
+  }
+
+  if (cur_page->GetPinCount() > 0) {
+    cur_page->pin_count_--;
+  }
+  if (cur_page->GetPinCount() == 0) {
+    // replacer_->Unpin(cur_frame_id);
+    // SignalForFreeFrame();
+  }
+  ReleaseLock();
+  return true;
+}
+
+bool FIFOBatchBufferPool::DeletePage(page_id_t page_id, u64 length) {
+  // Delete page_id from responsible BufferPoolManager
+  return false;
 }

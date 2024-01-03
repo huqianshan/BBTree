@@ -11,6 +11,48 @@
 #include "common.h"
 // namespace BTree {
 
+TEST(ReplacerTest, 0_FIFO) {
+  FIFOReplacer *fifo = new FIFOReplacer(8);
+
+  std::vector<frame_id_t> frames(8);
+  std::iota(frames.begin(), frames.end(), 0);
+
+  for (const auto &frame : frames) {
+    EXPECT_TRUE(fifo->Add(frame));
+  }
+  EXPECT_FALSE(fifo->Add(8));
+
+  frame_id_t victim = -1;
+  std::vector<frame_id_t> new_frames(8);
+  std::iota(new_frames.begin(), new_frames.end(), 8);
+  for (const auto &frame : new_frames) {
+    EXPECT_TRUE(fifo->Victim(&victim));
+    EXPECT_EQ(frame, victim + 8);
+
+    EXPECT_TRUE(fifo->Add(frame));
+  }
+  // EXPECT_FALSE(fifo->Victim(&victim));
+  // EXPECT_TRUE(fifo->Add(8));
+  // EXPECT_TRUE(fifo->Victim(&victim));
+  // EXPECT_EQ(8, victim);
+
+  /*   std::shuffle(new_frames.begin(), frames.end(), std::mt19937(1024));
+    for (const auto &frame : frames) {
+      std::cout << frame << " ";
+    }
+    std::cout << std::endl;
+    for (const auto &frame : frames) {
+      EXPECT_TRUE(fifo->Add(frame));
+    }
+    for (const auto &frame : frames) {
+      EXPECT_TRUE(fifo->Victim(&victim));
+      EXPECT_EQ(frame, victim) << "test";
+      std::cout << frame << " ";
+    }
+    std::cout << std::endl; */
+  delete fifo;
+}
+
 // Sequential insert
 TEST(BTreeCRUDTest1, 1_InsertSeq) {
   DiskManager *disk = new DiskManager(FILE_NAME.c_str());

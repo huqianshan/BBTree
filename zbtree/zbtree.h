@@ -36,10 +36,18 @@ static const uint64_t LeafNodeMaxEntries =
 static const uint64_t InnerNodeMaxEntries =
     (InnerNodeSize - BaseNodeSize) / (sizeof(Key) + sizeof(void *)) - 2;
 
+/**
+ * @brief every lock add the 2th bits.
+ *
+ */
 struct OptLock {
   std::atomic<uint64_t> typeVersionLockObsolete{0b100};
 
   bool isLocked(uint64_t version) { return ((version & 0b10) == 0b10); }
+
+  void writeUnlock() { typeVersionLockObsolete.fetch_add(0b10); }
+
+  bool isObsolete(uint64_t version) { return (version & 1) == 1; }
 
   uint64_t readLockOrRestart(bool &needRestart) {
     uint64_t version;
@@ -69,10 +77,6 @@ struct OptLock {
       needRestart = true;
     }
   }
-
-  void writeUnlock() { typeVersionLockObsolete.fetch_add(0b10); }
-
-  bool isObsolete(uint64_t version) { return (version & 1) == 1; }
 
   void checkOrRestart(uint64_t startRead, bool &needRestart) const {
     readUnlockOrRestart(startRead, needRestart);

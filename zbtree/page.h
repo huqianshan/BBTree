@@ -44,7 +44,7 @@ class Page {
   inline void SetLeafPtr(void *leaf_ptr) { leaf_ptr_ = leaf_ptr; }
 
   /** @return the pin count of this page */
-  inline int GetPinCount() { return pin_count_; }
+  inline int GetPinCount() { return pin_count_.load(); }
 
   /** @return true if the page in memory has been modified from the page on
    * disk, false otherwise */
@@ -82,7 +82,7 @@ class Page {
   page_id_t page_id_ = INVALID_PAGE_ID;
   void *leaf_ptr_ = nullptr;
   /** The pin count of this page. */
-  int pin_count_ = 0;
+  std::atomic<int> pin_count_{0};
   /** True if the page is dirty, i.e. it is different from its corresponding
    * page on disk. */
   bool is_dirty_ = false;

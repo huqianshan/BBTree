@@ -27,6 +27,7 @@ const std::string TREE_NAME = "BTreeBufferOnExt4SSD";
 // #define LATENCY
 // #define PM_PCM
 #define DRAM_CONSUMPTION
+#define GDB
 
 enum OP { OP_INSERT, OP_READ, OP_DELETE, OP_UPDATE, OP_SCAN };
 
@@ -292,15 +293,24 @@ void run_test(int num_thread, string load_data, string run_data,
 }
 
 int main(int argc, char **argv) {
+#ifndef GDB
   if (argc != 4) {
     printf("Usage: %s <workload> <threads> <size>\n", argv[0]);
     exit(0);
   };
+#endif
 
   printf("Test Begin\n");
-  printf("workload: %s, threads: %s\n", argv[1], argv[2]);
 
+#ifndef GDB
   string workload = argv[1];
+  printf("workload: %s, threads: %s\n", argv[1], argv[2]);
+#else
+  string workload = "ycsba";
+  int num_thread = 1;
+  int GDB_SIZE = 1;
+  printf("workload: %s, threads: %2d\n", workload.c_str(), num_thread);
+#endif
   string load_data = "";
   string run_data = "";
   if (workload.find("ycsb") != string::npos) {
@@ -313,20 +323,25 @@ int main(int argc, char **argv) {
     return 0;
   }
 
+#ifndef GDB
   int num_thread = atoi(argv[2]);
   u64 max_load_size = MILLION * atoi(argv[3]);
   u64 max_run_size = MILLION * atoi(argv[3]);
+#else
+  u64 max_load_size = MILLION * GDB_SIZE;
+  u64 max_run_size = MILLION * GDB_SIZE;
+#endif
 
   remove(FILE_NAME.c_str());
-
+#ifndef GDB
   auto read_reg_before = 0, written_reg_before = 0;
   std::tie(read_reg_before, written_reg_before) = getDataUnits(REGURLAR_DEVICE);
   auto read_zone_before = 0, written_zone_before = 0;
   std::tie(read_zone_before, written_zone_before) = getDataUnits(ZNS_DEVICE);
-
+#endif
   run_test(num_thread, load_data, run_data, workload, max_load_size,
            max_run_size);
-
+#ifndef GDB
   auto read_reg = 0, written_reg = 0;
   std::tie(read_reg, written_reg) = getDataUnits(REGURLAR_DEVICE);
   auto read_zone = 0, written_zone = 0;
@@ -356,7 +371,7 @@ int main(int argc, char **argv) {
   printf("[Zone] Read amp: %6.2f bytes/op, Write amp: %6.2f bytes/op \n",
          read_amplification_zone, write_amplification_zone);
   printf("Load size: %lu, Run size: %lu\n", LOAD_SIZE, RUN_SIZE);
-
+#endif
   printf("Test End\n");
   return 0;
 }
