@@ -268,6 +268,8 @@ void run_test(int num_thread, string load_data, string run_data,
   GetDRAMSpace();
 #endif
 
+  para->FlushAllPages();
+
   auto file_size = para->GetFileSize();
   auto read_count = para->GetReadCount();
   auto write_count = para->GetWriteCount();
@@ -287,7 +289,7 @@ void run_test(int num_thread, string load_data, string run_data,
       "[BufferPool]: In-place read in a page: %6.2f, In-place write in a page: "
       "%6.2f\n",
       page_read_avg, page_write_avg);
-  printf("[BTreeIndex]: Read amp: %6.2f bytes/op, Write amp: %6.2f bytes/op\n ",
+  printf("[BTreeIndex]: Read amp: %6.2f bytes/op, Write amp: %6.2f bytes/op\n",
          bytes_read_avg, bytes_write_avg);
 }
 
