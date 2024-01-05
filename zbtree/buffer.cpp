@@ -521,7 +521,7 @@ void ParallelBufferPoolManager::Print() {
   std::vector<float> percentiles = {0.0, 0.1, 0.2, 0.3, 0.4,   0.5,
                                     0.6, 0.7, 0.8, 0.9, 0.999, 0.99999};
   for (auto& p : percentiles) {
-    INFO_PRINT("[BufferPool] Percentile: %2.2lf%% %4u\n", p * 100,
+    INFO_PRINT("[BufferPool] Percentile: %2.2lf%% %4lu\n", p * 100,
                page_ids[size_t(p * sz)]);
   }
 
@@ -543,7 +543,7 @@ FIFOBatchBufferPool::FIFOBatchBufferPool(size_t pool_size,
   page_table_.reserve(pool_size);
   disk_manager_ = disk_manager;
   pool_size_ = pool_size;
-  flusher_ = new CircleFlusher(disk_manager, CIRCLE_FLUSHER_SIZE);
+  flusher_ = new CircleFlusher(nullptr, CIRCLE_FLUSHER_SIZE);
   cur_wp_ = 0;
   max_wp_ = 1024ull * 1024 * 1024;
 
@@ -563,7 +563,7 @@ FIFOBatchBufferPool::~FIFOBatchBufferPool() {
   }
 }
 
-size_t FIFOBatchBufferPool::Size() {
+u64 FIFOBatchBufferPool::Size() {
   // Get size of all BufferPoolManagerInstances
   return replacer_->Size();
 }
@@ -603,6 +603,7 @@ Page* FIFOBatchBufferPool::GrabPageFrame(u64 length) {
   // WaitForFreeFrame();
   // }
   // return ret_page;
+  return nullptr;
 }
 
 Page* FIFOBatchBufferPool::NewPage(page_id_t* page_id, u64 length) {

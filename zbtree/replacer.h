@@ -132,7 +132,7 @@ class FIFOBacthReplacer {
   void Pin(frame_id_t frame_id);
   void Unpin(frame_id_t frame_id);
 
-  size_t Size();
+  u64 Size();
   void Print();
 
  private:

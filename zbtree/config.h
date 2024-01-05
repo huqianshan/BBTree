@@ -1,5 +1,7 @@
 #pragma once
 
+#include <immintrin.h>
+
 #include <atomic>
 #include <cassert>
 #include <chrono>  // NOLINT
@@ -12,10 +14,12 @@ using u64 = uint64_t;
 using u32 = uint32_t;
 using i32 = int32_t;
 
-// typedef i32 txn_id_t;
-typedef u32 page_id_t;
+typedef u64 page_id_t;
+typedef u64 offset_t;
 typedef u64 KeyType;
 typedef u64 ValueType;
+typedef u64 zone_id_t;
+typedef u64 zone_offset_t;  // 16 bit for zone id, 48 bit for zone offset
 typedef std::pair<KeyType, ValueType> PairType;
 
 static constexpr u32 PAGE_SIZE = 4096;  // size of a data page in byte
@@ -24,6 +28,22 @@ static constexpr page_id_t INVALID_PAGE_ID = -1;  // invalid page id
 
 const KeyType MIN_KEY = std::numeric_limits<KeyType>::min();
 const ValueType INVALID_VALUE = std::numeric_limits<ValueType>::max();
+
+#define GET_ZONE_ID(pid_) ((pid_) >> 48)
+#define GET_ZONE_OFFSET(pid_) ((pid_) & 0x0000FFFFFFFFFFFF)
+#define MAKE_PAGE_ID(zone_id, zone_offset) \
+  (((zone_id) << 48) | ((zone_offset) & 0x0000FFFFFFFFFFFF))
+
+const u32 SPIN_LIMIT = 6;
+#define ATOMIC_SPIN_UNTIL(ptr, status)                    \
+  u32 atomic_step_ = 0;                                   \
+  while (ptr != status) {                                 \
+    auto limit = 1 << std::min(atomic_step_, SPIN_LIMIT); \
+    for (uint32_t i = 0; i < limit; ++i) {                \
+      _mm_pause();                                        \
+    };                                                    \
+    atomic_step_++;                                       \
+  }
 
 enum NodeType { INNERNODE = 0, LEAFNODE, ROOTNODE, INVALIDNODE };
 enum TreeOpType {
@@ -52,7 +72,9 @@ class CircleBuffer {
   // https://github.com/cameron314/concurrentqueue
  public:
   CircleBuffer(u64 max_size)
-      : head_(0), tail_(0), size_(0), max_size_(max_size) {}
+      : head_(0), tail_(0), size_(0), max_size_(max_size) {
+    buffer_ = new T[max_size_];
+  }
   ~CircleBuffer() {}
 
   bool Push(const T &item) {
@@ -62,8 +84,7 @@ class CircleBuffer {
     }
     buffer_[head_] = item;
     u64 new_head = (head_ + 1) % max_size_;
-    while (!head_.compare_exchange_strong(head_, new_head))
-      ;
+    head_.exchange(new_head);
     size_.fetch_add(1);
     return true;
   }
@@ -75,8 +96,7 @@ class CircleBuffer {
     }
     item = buffer_[tail_];
     u64 new_tail = (tail_ + 1) % max_size_;
-    while (!tail_.compare_exchange_strong(tail_, new_tail))
-      ;
+    tail_.exchange(new_tail);
     size_.fetch_sub(1);
     return true;
   }
@@ -89,7 +109,7 @@ class CircleBuffer {
 
  private:
   const u64 max_size_;
-  T buffer_[max_size_];
+  T *buffer_;
   std::atomic<u64> head_;
   std::atomic<u64> tail_;
   std::atomic<u64> size_;

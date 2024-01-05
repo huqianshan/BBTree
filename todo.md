@@ -7,12 +7,15 @@
 - [x] buffer pool的命中次数、命中率
 - [ ] buffer pool 的mapping table使用了`STL unordered_map`性能很低,参考perf 图
 - [ ] buffer pool的并发竞争问题
-- [ ] buffer pool的刷回读取问题：**异步**、顺序预取、提前刷回、且在zns上无法并发刷回
+- [ ] BatchFIFOWriteBuffer 单线程版本
+- [ ] BatchFIFOWriteBuffer 多线程版本
+- [ ] 与batch flush结合
 
 ### Zone BTree
 
 - [x] 将中间结点都放置于DRAM之中
-- [ ] 修改叶子结点`page_id`为 `zone_id+offset`
+- [x] 修改叶子结点`page_id`为 `zone_id+offset`
+  - [ ] `page_id=[zone_id + offset_in_zone]`,修改read时的offset以及写时分配的offset
   - [ ] 分配叶子结点id需要一个分配算法
 - [ ] 添加 `batch insert/delete/update`接口
 - [x] `Optimistic Lock Coupling`
@@ -23,9 +26,7 @@
 - [x ] `Memtable`的实现: ~~`skiplist`~~ or Btree-OLC total in memory`
 
 ### ZNS Storage
-
-- [ ] `Zone`的元数据、以及基于元数据的`Zone`的分配策略
-- [ ] 基于元数据的`Zone`回收策略
+- [ ] Cicle Buffer的Push/Pop 并发支持
 
 
 

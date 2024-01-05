@@ -1,6 +1,5 @@
 #pragma once
 
-#include <immintrin.h>
 #include <sched.h>
 
 #include <atomic>

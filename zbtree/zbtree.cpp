@@ -85,7 +85,7 @@ BTreeLeaf* BTreeLeaf::split(Key& sep, ParallelBufferPoolManager* bpm) {
 }
 
 void BTreeLeaf::Print(ParallelBufferPoolManager* bpm) {
-  INFO_PRINT("[LeafNode page_id:%u addr:%p count: %3u ", this->page_id, this,
+  INFO_PRINT("[LeafNode page_id:%lu addr:%p count: %3u ", this->page_id, this,
              this->count);
   NodeRAII node(bpm, this->page_id);
   this->data = reinterpret_cast<KeyValueType*>(node.GetNode());

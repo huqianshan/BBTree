@@ -210,6 +210,8 @@ bool FIFOBacthReplacer::Victim(Item *item) {
   return true;
 }
 
+u64 FIFOBacthReplacer::Size() { return cur_size_; }
+
 void FIFOBacthReplacer::Print() {
   Item *temp = head_;
   while (temp) {

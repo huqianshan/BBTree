@@ -1,5 +1,6 @@
 #pragma once
 #include <algorithm>
+#include <condition_variable>
 #include <list>
 #include <mutex>
 #include <mutex>  // NOLINT
@@ -260,12 +261,9 @@ class ParallelBufferPoolManager {
 };
 
 typedef std::pair<Page *, u64> Slot;
-
-#include <condition_variable>
-
 class CircleFlusher {
  public:
-  CircleFlusher(DiskManager *disk_manager, u64 flush_size)
+  CircleFlusher(ZnsManager *disk_manager, u64 flush_size)
       : disk_manager_(disk_manager), flush_size_(flush_size), stop_(false) {
     flush_pages_ = new CircleBuffer<Slot>(flush_size_);
     flush_thread_ = std::thread([this] { this->FlushThread(); });
@@ -283,10 +281,10 @@ class CircleFlusher {
 
   void AddPage(Slot slot) {
     while (!flush_pages_->Push(slot)) {
-      // _mm_pause();
+      _mm_pause();
       // std::this_thread::sleep_for(std::chrono::microseconds(1));
     }
-    // cv_.notify_one();
+    cv_.notify_one();
   }
 
   void FlushThread() {
@@ -309,10 +307,10 @@ class CircleFlusher {
     }
     Page *page = slot.first;
     u64 length = slot.second;
-    while (page->GetPinCount() != 0) {
-      // _mm_pause();
-      // std::this_thread::sleep_for(std::chrono::microseconds(1));
-    }
+
+    // :NOTE: :hjl:  may be need return and sleep
+    ATOMIC_SPIN_UNTIL(page->GetPinCount(), 0);
+
     disk_manager_->write_n_pages(page->GetPageId(), length, page->GetData());
     free(page->GetData());
     delete page;
@@ -322,7 +320,8 @@ class CircleFlusher {
   u64 flush_size_;
   u64 begin_ = 0;
   CircleBuffer<Slot> *flush_pages_;
-  DiskManager *disk_manager_;
+  // DiskManager *disk_manager_;
+  ZnsManager *disk_manager_;
   std::mutex mutex_;
   std::condition_variable cv_;
   std::thread flush_thread_;
@@ -347,8 +346,9 @@ class FIFOBatchBufferPool {
   /**
    * @brief no lock
    */
-  Page *FIFOBatchBufferPool::NewPageImp(page_id_t *page_id, u64 length = 1);
+  Page *NewPageImp(page_id_t *page_id, u64 length = 1);
   bool UnpinPage(page_id_t page_id, u64 length, bool is_dirty);
+  bool UnpinPage(page_id_t page_id, bool is_dirty);
   bool DeletePage(page_id_t page_id, u64 length);
   bool FlushPage(page_id_t page_id, u64 length);
 
@@ -393,7 +393,7 @@ class FIFOBatchBufferPool {
     int ret = pthread_cond_wait(&cond_, &mutex_);
     VERIFY(!ret);
   }
-  size_t Size();
+  u64 Size();
   void Print();
 
  private:

@@ -7,123 +7,178 @@
 #include <vector>
 
 #include "../zbtree/buffer.h"
-#include "../zbtree/zbtree.h"
+// #include "../zbtree/zbtree.h"
 #include "common.h"
 // namespace BTree {
 
-TEST(ReplacerTest, 0_FIFO) {
-  FIFOReplacer *fifo = new FIFOReplacer(8);
+TEST(Fluser, 0_Single) {
+  // std::string fluser_name = "/data/public/hjl/bbtree/flusher.db";
+  // ZnsManager *disk = new ZnsManager(fluser_name.c_str());
+  ZnsManager *zns_ = new ZnsManager(ZNS_DEVICE);
+  u64 size = 4;
+  auto flusher = new CircleFlusher(zns_, 2);
 
-  std::vector<frame_id_t> frames(8);
-  std::iota(frames.begin(), frames.end(), 0);
+  auto zbd_ = zns_->zbd_;
+  Zone *zone;
+  EXPECT_EQ(zbd_->AllocateEmptyZone(&zone), OK());
+  zone_id_t zone_id = zone->GetZoneNr();
+  // in zns page size
+  offset_t offset = zone->GetNextPageId();
+  INFO_PRINT("zone_id = %lu offset = %lu\n", zone_id, offset);
 
-  for (const auto &frame : frames) {
-    EXPECT_TRUE(fifo->Add(frame));
+  std::vector<Page *> pages(size);
+  for (size_t i = 0; i < size; i++) {
+    auto write_buffer = (char *)aligned_alloc(PAGE_SIZE, PAGE_SIZE);
+    pages[i] = new Page();
+    auto id = MAKE_PAGE_ID(zone_id, offset + i);
+
+    pages[i]->page_id_ = id;
+    pages[i]->SetData(write_buffer);
+    pages[i]->pin_count_++;
+    auto p = (Page *)(pages[i]->GetData());
+    p->page_id_ = id;
+    EXPECT_EQ(pages[i]->page_id_, id);
   }
-  EXPECT_FALSE(fifo->Add(8));
+  zone->Print();
+  zone->PrintZbd();
 
-  frame_id_t victim = -1;
-  std::vector<frame_id_t> new_frames(8);
-  std::iota(new_frames.begin(), new_frames.end(), 8);
-  for (const auto &frame : new_frames) {
-    EXPECT_TRUE(fifo->Victim(&victim));
-    EXPECT_EQ(frame, victim + 8);
+  // zbd_->PrintUsedZones();
 
-    EXPECT_TRUE(fifo->Add(frame));
+  // add to flusher
+  for (size_t i = 0; i < size; i++) {
+    flusher->AddPage({pages[i], 1});
+    pages[i]->pin_count_--;
   }
-  // EXPECT_FALSE(fifo->Victim(&victim));
-  // EXPECT_TRUE(fifo->Add(8));
-  // EXPECT_TRUE(fifo->Victim(&victim));
-  // EXPECT_EQ(8, victim);
 
-  /*   std::shuffle(new_frames.begin(), frames.end(), std::mt19937(1024));
-    for (const auto &frame : frames) {
-      std::cout << frame << " ";
-    }
-    std::cout << std::endl;
-    for (const auto &frame : frames) {
-      EXPECT_TRUE(fifo->Add(frame));
-    }
-    for (const auto &frame : frames) {
-      EXPECT_TRUE(fifo->Victim(&victim));
-      EXPECT_EQ(frame, victim) << "test";
-      std::cout << frame << " ";
-    }
-    std::cout << std::endl; */
-  delete fifo;
+  delete flusher;
+  zone->Print();
+  zone->PrintZbd();
+
+  // check read
+  auto read_buffer = (char *)aligned_alloc(PAGE_SIZE, PAGE_SIZE);
+  for (size_t i = 0; i < size; i++) {
+    zns_->read_n_pages(MAKE_PAGE_ID(zone_id, offset + i), 1, read_buffer);
+    auto zns_page = (Page *)read_buffer;
+    EXPECT_EQ(zns_page->page_id_, offset + i);
+  }
+
+  delete zns_;
 }
+
+// TEST(ReplacerTest, 0_FIFO) {
+//   FIFOReplacer *fifo = new FIFOReplacer(8);
+
+//   std::vector<frame_id_t> frames(8);
+//   std::iota(frames.begin(), frames.end(), 0);
+
+//   for (const auto &frame : frames) {
+//     EXPECT_TRUE(fifo->Add(frame));
+//   }
+//   EXPECT_FALSE(fifo->Add(8));
+
+//   frame_id_t victim = -1;
+//   std::vector<frame_id_t> new_frames(8);
+//   std::iota(new_frames.begin(), new_frames.end(), 8);
+//   for (const auto &frame : new_frames) {
+//     EXPECT_TRUE(fifo->Victim(&victim));
+//     EXPECT_EQ(frame, victim + 8);
+
+//     EXPECT_TRUE(fifo->Add(frame));
+//   }
+
+//   // EXPECT_FALSE(fifo->Victim(&victim));
+//   // EXPECT_TRUE(fifo->Add(8));
+//   // EXPECT_TRUE(fifo->Victim(&victim));
+//   // EXPECT_EQ(8, victim);
+
+//   /*   std::shuffle(new_frames.begin(), frames.end(), std::mt19937(1024));
+//     for (const auto &frame : frames) {
+//       std::cout << frame << " ";
+//     }
+//     std::cout << std::endl;
+//     for (const auto &frame : frames) {
+//       EXPECT_TRUE(fifo->Add(frame));
+//     }
+//     for (const auto &frame : frames) {
+//       EXPECT_TRUE(fifo->Victim(&victim));
+//       EXPECT_EQ(frame, victim) << "test";
+//       std::cout << frame << " ";
+//     }
+//     std::cout << std::endl; */
+//   delete fifo;
+// }
 
 // Sequential insert
-TEST(BTreeCRUDTest1, 1_InsertSeq) {
-  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
-  ParallelBufferPoolManager *para =
-      new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
-  // BTree::BTree *tree = new BTree::BTree(para);
-  // btreeolc::bpm = para;
-  btreeolc::BTree *btree = new btreeolc::BTree(para);
+// TEST(BTreeCRUDTest1, 1_InsertSeq) {
+//   DiskManager *disk = new DiskManager(FILE_NAME.c_str());
+//   ParallelBufferPoolManager *para =
+//       new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
+//   // BTree::BTree *tree = new BTree::BTree(para);
+//   // btreeolc::bpm = para;
+//   btreeolc::BTree *btree = new btreeolc::BTree(para);
 
-  int key_nums = 199;
-  std::vector<u64> keys(key_nums);
-  std::iota(keys.begin(), keys.end(), 1);
+//   int key_nums = 199;
+//   std::vector<u64> keys(key_nums);
+//   std::iota(keys.begin(), keys.end(), 1);
 
-  int i = 0;
-  for (const auto &key : keys) {
-    if (key == 19) {
-      printf("key at %d\n", i);
-      btree->Draw(DOTFILE_NAME_BEFORE);
-    }
-    i++;
-    EXPECT_TRUE(btree->Insert(key, key));
-  }
+//   int i = 0;
+//   for (const auto &key : keys) {
+//     if (key == 19) {
+//       printf("key at %d\n", i);
+//       btree->Draw(DOTFILE_NAME_BEFORE);
+//     }
+//     i++;
+//     EXPECT_TRUE(btree->Insert(key, key));
+//   }
 
-  btree->Draw(DOTFILE_NAME_AFTER);
+//   btree->Draw(DOTFILE_NAME_AFTER);
 
-  for (const auto &key : keys) {
-    ValueType value = -1;
-    EXPECT_TRUE(btree->Get(key, value));
-    EXPECT_EQ(key, value);
-    // if (key % 1000 == 0) {
-    // printf("key = %lu value = %lu\n", key, value);
-    // }
-  }
+//   for (const auto &key : keys) {
+//     ValueType value = -1;
+//     EXPECT_TRUE(btree->Get(key, value));
+//     EXPECT_EQ(key, value);
+//     // if (key % 1000 == 0) {
+//     // printf("key = %lu value = %lu\n", key, value);
+//     // }
+//   }
 
-  delete btree;
-}
+//   delete btree;
+// }
 
-// Random insert
-TEST(BTreeCRUDTest1, 2_InsertRandom) {
-  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
-  ParallelBufferPoolManager *para =
-      new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
-  // BTree::BTree *tree = new BTree::BTree(para);
-  // btreeolc::bpm = para;
-  btreeolc::BTree *btree = new btreeolc::BTree(para);
+// // Random insert
+// TEST(BTreeCRUDTest1, 2_InsertRandom) {
+//   DiskManager *disk = new DiskManager(FILE_NAME.c_str());
+//   ParallelBufferPoolManager *para =
+//       new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
+//   // BTree::BTree *tree = new BTree::BTree(para);
+//   // btreeolc::bpm = para;
+//   btreeolc::BTree *btree = new btreeolc::BTree(para);
 
-  int key_nums = 1024;
-  std::vector<int> keys(key_nums);
-  std::iota(keys.begin(), keys.end(), 1);
+//   int key_nums = 1024;
+//   std::vector<int> keys(key_nums);
+//   std::iota(keys.begin(), keys.end(), 1);
 
-  // random shuffle
-  std::mt19937 g(1024);
-  std::shuffle(keys.begin(), keys.end(), g);
-  int i = 0;
-  for (const auto &key : keys) {
-    // if (key == 8 || key == 16) {
-    //   btree->Draw(DOTFILE_NAME_BEFORE);
-    // }
-    EXPECT_TRUE(btree->Insert(key, key));
-    i++;
-  }
+//   // random shuffle
+//   std::mt19937 g(1024);
+//   std::shuffle(keys.begin(), keys.end(), g);
+//   int i = 0;
+//   for (const auto &key : keys) {
+//     // if (key == 8 || key == 16) {
+//     //   btree->Draw(DOTFILE_NAME_BEFORE);
+//     // }
+//     EXPECT_TRUE(btree->Insert(key, key));
+//     i++;
+//   }
 
-  btree->Draw(DOTFILE_NAME_AFTER);
-  for (const auto &key : keys) {
-    ValueType value = -1;
-    EXPECT_TRUE(btree->Get(key, value));
-    EXPECT_EQ(key, value);
-  }
+//   btree->Draw(DOTFILE_NAME_AFTER);
+//   for (const auto &key : keys) {
+//     ValueType value = -1;
+//     EXPECT_TRUE(btree->Get(key, value));
+//     EXPECT_EQ(key, value);
+//   }
 
-  delete btree;
-}
+//   delete btree;
+// }
 
 // // Random insert
 // TEST(BTreeCRUDTest1, 3_InsertDuplicated) {

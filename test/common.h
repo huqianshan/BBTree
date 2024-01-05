@@ -11,7 +11,7 @@ const std::string DOTFILE_NAME_AFTER = "./bbtree-after.dot";
 
 #define REGURLAR_DEVICE "/dev/nvme0n1p1"
 // #define REGURLAR_DEVICE "/dev/nvme1n1p1"
-#define ZNS_DEVICE "/dev/nvme4n1"
+#define ZNS_DEVICE "/dev/nvme2n2"
 
 const std::string FILE_NAME = "/data/public/hjl/bbtree/bbtree.db";
 // const std::string FILE_NAME = "/data/public/hjl/bbtree/f2fs/bbtree.db";
