@@ -7,8 +7,12 @@
 #include <chrono>  // NOLINT
 #include <cstdint>
 #include <iostream>
+#include <mutex>
 #include <utility>  //std::pair
 
+#define UNITTEST_
+#define READ_ONLY (true)
+#define WRITE_FLAG (false)
 // namespace BTree {
 using u64 = uint64_t;
 using u32 = uint32_t;

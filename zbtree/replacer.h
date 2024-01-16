@@ -106,6 +106,7 @@ struct Item {
         data_(addr),
         next_(nullptr),
         prev_(nullptr){};
+  Item() = default;
 };
 
 class FIFOBacthReplacer {
@@ -122,20 +123,14 @@ class FIFOBacthReplacer {
    */
   ~FIFOBacthReplacer();
 
-  bool Add(frame_id_t frame_id);
-  bool Add(frame_id_t frame_id, Item *begin, u32 length, char *data);
-  bool Victim(Item *item);
-  bool ToVictim(frame_id_t *frame_id);
-  bool Remove(frame_id_t frame_id);
+  bool Add(frame_id_t frame_id, u32 length, char *data);
+  bool Victim(Item **item);
   bool IsFull();
-
-  void Pin(frame_id_t frame_id);
-  void Unpin(frame_id_t frame_id);
 
   u64 Size();
   void Print();
 
- private:
+  //  private:
   // LRU list node
   // std::vector<frame_id_t> *fifo_list_;
   Item *head_;
@@ -145,7 +140,7 @@ class FIFOBacthReplacer {
   // u32 fifo_head_;
   // u32 fifo_tail_;
   // page frame exists in the replacer
-  bool IsValid(frame_id_t frame_id) const;
+  // bool IsValid(frame_id_t frame_id) const;
   // remove node
-  void Invalidate(frame_id_t frame_id);
+  // void Invalidate(frame_id_t frame_id);
 };

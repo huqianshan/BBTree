@@ -177,8 +177,7 @@ FIFOBacthReplacer::~FIFOBacthReplacer() {
   }
 }
 
-bool FIFOBacthReplacer::Add(frame_id_t frame_id, Item *begin, u32 length,
-                            char *data) {
+bool FIFOBacthReplacer::Add(frame_id_t frame_id, u32 length, char *data) {
   if (cur_size_ == max_size_) {
     return false;
   }
@@ -189,14 +188,13 @@ bool FIFOBacthReplacer::Add(frame_id_t frame_id, Item *begin, u32 length,
   head_->next_->prev_ = item;
   head_->next_ = item;
 
-  begin = item;
   cur_size_++;
   return true;
 };
 
 bool FIFOBacthReplacer::IsFull() { return cur_size_ == max_size_; }
 
-bool FIFOBacthReplacer::Victim(Item *item) {
+bool FIFOBacthReplacer::Victim(Item **item) {
   if (cur_size_ == 0) {
     return false;
   }
@@ -204,7 +202,7 @@ bool FIFOBacthReplacer::Victim(Item *item) {
   Item *temp = tail_->prev_;
   temp->prev_->next_ = tail_;
   tail_->prev_ = temp->prev_;
-  item = temp;
+  *item = temp;
 
   cur_size_--;
   return true;

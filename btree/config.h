@@ -63,7 +63,7 @@ enum LatchMode {
 #define VERIFY(expression) assert(expression)
 #endif
 
-#ifdef DEBUG
+#ifdef NO_PRINT
 
 #define INFO_PRINT(fmt, args...)
 #define DEBUG_PRINT(fmt, args...)

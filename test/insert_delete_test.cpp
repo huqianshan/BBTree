@@ -7,63 +7,63 @@
 #include <vector>
 
 #include "../zbtree/buffer.h"
-// #include "../zbtree/zbtree.h"
+#include "../zbtree/zbtree.h"
 #include "common.h"
 // namespace BTree {
 
-TEST(Fluser, 0_Single) {
-  // std::string fluser_name = "/data/public/hjl/bbtree/flusher.db";
-  // ZnsManager *disk = new ZnsManager(fluser_name.c_str());
-  ZnsManager *zns_ = new ZnsManager(ZNS_DEVICE);
-  u64 size = 4;
-  auto flusher = new CircleFlusher(zns_, 2);
+// TEST(Fluser, 0_Single) {
+//   // std::string fluser_name = "/data/public/hjl/bbtree/flusher.db";
+//   // ZnsManager *disk = new ZnsManager(fluser_name.c_str());
+//   ZnsManager *zns_ = new ZnsManager(ZNS_DEVICE);
+//   u64 size = 4;
+//   auto flusher = new CircleFlusher(zns_, 2);
 
-  auto zbd_ = zns_->zbd_;
-  Zone *zone;
-  EXPECT_EQ(zbd_->AllocateEmptyZone(&zone), OK());
-  zone_id_t zone_id = zone->GetZoneNr();
-  // in zns page size
-  offset_t offset = zone->GetNextPageId();
-  INFO_PRINT("zone_id = %lu offset = %lu\n", zone_id, offset);
+//   auto zbd_ = zns_->zbd_;
+//   Zone *zone;
+//   EXPECT_EQ(zbd_->AllocateEmptyZone(&zone), OK());
+//   zone_id_t zone_id = zone->GetZoneNr();
+//   // in zns page size
+//   offset_t offset = zone->GetNextPageId();
+//   INFO_PRINT("zone_id = %lu offset = %lu\n", zone_id, offset);
 
-  std::vector<Page *> pages(size);
-  for (size_t i = 0; i < size; i++) {
-    auto write_buffer = (char *)aligned_alloc(PAGE_SIZE, PAGE_SIZE);
-    pages[i] = new Page();
-    auto id = MAKE_PAGE_ID(zone_id, offset + i);
+//   std::vector<Page *> pages(size);
+//   for (size_t i = 0; i < size; i++) {
+//     auto write_buffer = (char *)aligned_alloc(PAGE_SIZE, PAGE_SIZE);
+//     pages[i] = new Page();
+//     auto id = MAKE_PAGE_ID(zone_id, offset + i);
 
-    pages[i]->page_id_ = id;
-    pages[i]->SetData(write_buffer);
-    pages[i]->pin_count_++;
-    auto p = (Page *)(pages[i]->GetData());
-    p->page_id_ = id;
-    EXPECT_EQ(pages[i]->page_id_, id);
-  }
-  zone->Print();
-  zone->PrintZbd();
+//     pages[i]->page_id_ = id;
+//     pages[i]->SetData(write_buffer);
+//     pages[i]->pin_count_++;
+//     auto p = (Page *)(pages[i]->GetData());
+//     p->page_id_ = id;
+//     EXPECT_EQ(pages[i]->page_id_, id);
+//   }
+//   zone->Print();
+//   zone->PrintZbd();
 
-  // zbd_->PrintUsedZones();
+//   // zbd_->PrintUsedZones();
 
-  // add to flusher
-  for (size_t i = 0; i < size; i++) {
-    flusher->AddPage({pages[i], 1});
-    pages[i]->pin_count_--;
-  }
+//   // add to flusher
+//   for (size_t i = 0; i < size; i++) {
+//     flusher->AddPage({pages[i], 1});
+//     pages[i]->pin_count_--;
+//   }
 
-  delete flusher;
-  zone->Print();
-  zone->PrintZbd();
+//   delete flusher;
+//   zone->Print();
+//   zone->PrintZbd();
 
-  // check read
-  auto read_buffer = (char *)aligned_alloc(PAGE_SIZE, PAGE_SIZE);
-  for (size_t i = 0; i < size; i++) {
-    zns_->read_n_pages(MAKE_PAGE_ID(zone_id, offset + i), 1, read_buffer);
-    auto zns_page = (Page *)read_buffer;
-    EXPECT_EQ(zns_page->page_id_, offset + i);
-  }
+//   // check read
+//   auto read_buffer = (char *)aligned_alloc(PAGE_SIZE, PAGE_SIZE);
+//   for (size_t i = 0; i < size; i++) {
+//     zns_->read_n_pages(MAKE_PAGE_ID(zone_id, offset + i), 1, read_buffer);
+//     auto zns_page = (Page *)read_buffer;
+//     EXPECT_EQ(zns_page->page_id_, offset + i);
+//   }
 
-  delete zns_;
-}
+//   delete zns_;
+// }
 
 // TEST(ReplacerTest, 0_FIFO) {
 //   FIFOReplacer *fifo = new FIFOReplacer(8);
@@ -109,107 +109,102 @@ TEST(Fluser, 0_Single) {
 // }
 
 // Sequential insert
-// TEST(BTreeCRUDTest1, 1_InsertSeq) {
-//   DiskManager *disk = new DiskManager(FILE_NAME.c_str());
-//   ParallelBufferPoolManager *para =
-//       new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
-//   // BTree::BTree *tree = new BTree::BTree(para);
-//   // btreeolc::bpm = para;
-//   btreeolc::BTree *btree = new btreeolc::BTree(para);
+TEST(BTreeCRUDTest1, 1_InsertSeq) {
+  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
+  // ParallelBufferPoolManager *para =
+  // new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
+  FIFOBatchBufferPool *para = new FIFOBatchBufferPool(PAGES_SIZE, disk);
+  // BTree::BTree *tree = new BTree::BTree(para);
+  // btreeolc::bpm = para;
+  btreeolc::BTree *btree = new btreeolc::BTree(para);
 
-//   int key_nums = 199;
-//   std::vector<u64> keys(key_nums);
-//   std::iota(keys.begin(), keys.end(), 1);
+  int key_nums = 199;
+  std::vector<u64> keys(key_nums);
+  std::iota(keys.begin(), keys.end(), 1);
 
-//   int i = 0;
-//   for (const auto &key : keys) {
-//     if (key == 19) {
-//       printf("key at %d\n", i);
-//       btree->Draw(DOTFILE_NAME_BEFORE);
-//     }
-//     i++;
-//     EXPECT_TRUE(btree->Insert(key, key));
-//   }
+  int i = 0;
+  for (const auto &key : keys) {
+    i++;
+    EXPECT_TRUE(btree->Insert(key, key));
+  }
 
-//   btree->Draw(DOTFILE_NAME_AFTER);
+  btree->Draw(DOTFILE_NAME_AFTER);
 
-//   for (const auto &key : keys) {
-//     ValueType value = -1;
-//     EXPECT_TRUE(btree->Get(key, value));
-//     EXPECT_EQ(key, value);
-//     // if (key % 1000 == 0) {
-//     // printf("key = %lu value = %lu\n", key, value);
-//     // }
-//   }
+  for (const auto &key : keys) {
+    ValueType value = -1;
+    EXPECT_TRUE(btree->Get(key, value));
+    EXPECT_EQ(key, value);
+    // if (key % 1000 == 0) {
+    // printf("key = %lu value = %lu\n", key, value);
+    // }
+  }
 
-//   delete btree;
-// }
+  delete btree;
+}
 
 // // Random insert
-// TEST(BTreeCRUDTest1, 2_InsertRandom) {
-//   DiskManager *disk = new DiskManager(FILE_NAME.c_str());
-//   ParallelBufferPoolManager *para =
-//       new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
-//   // BTree::BTree *tree = new BTree::BTree(para);
-//   // btreeolc::bpm = para;
-//   btreeolc::BTree *btree = new btreeolc::BTree(para);
+TEST(BTreeCRUDTest1, 2_InsertRandom) {
+  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
+  FIFOBatchBufferPool *para = new FIFOBatchBufferPool(PAGES_SIZE, disk);
+  // BTree::BTree *tree = new BTree::BTree(para);
+  // btreeolc::bpm = para;
+  btreeolc::BTree *btree = new btreeolc::BTree(para);
 
-//   int key_nums = 1024;
-//   std::vector<int> keys(key_nums);
-//   std::iota(keys.begin(), keys.end(), 1);
+  int key_nums = 1024;
+  std::vector<int> keys(key_nums);
+  std::iota(keys.begin(), keys.end(), 1);
 
-//   // random shuffle
-//   std::mt19937 g(1024);
-//   std::shuffle(keys.begin(), keys.end(), g);
-//   int i = 0;
-//   for (const auto &key : keys) {
-//     // if (key == 8 || key == 16) {
-//     //   btree->Draw(DOTFILE_NAME_BEFORE);
-//     // }
-//     EXPECT_TRUE(btree->Insert(key, key));
-//     i++;
-//   }
+  // random shuffle
+  std::mt19937 g(1024);
+  std::shuffle(keys.begin(), keys.end(), g);
+  int i = 0;
+  for (const auto &key : keys) {
+    // if (key == 8 || key == 16) {
+    //   btree->Draw(DOTFILE_NAME_BEFORE);
+    // }
+    EXPECT_TRUE(btree->Insert(key, key));
+    i++;
+  }
 
-//   btree->Draw(DOTFILE_NAME_AFTER);
-//   for (const auto &key : keys) {
-//     ValueType value = -1;
-//     EXPECT_TRUE(btree->Get(key, value));
-//     EXPECT_EQ(key, value);
-//   }
+  btree->Draw(DOTFILE_NAME_AFTER);
+  for (const auto &key : keys) {
+    ValueType value = -1;
+    EXPECT_TRUE(btree->Get(key, value));
+    EXPECT_EQ(key, value);
+  }
 
-//   delete btree;
-// }
+  delete btree;
+}
 
-// // Random insert
-// TEST(BTreeCRUDTest1, 3_InsertDuplicated) {
-//   DiskManager *disk = new DiskManager(FILE_NAME.c_str());
-//   ParallelBufferPoolManager *para =
-//       new ParallelBufferPoolManager(INSTANCE_SIZE, PAGES_SIZE, disk);
-//   BTree *btree = new BTree(para);
+// Random insert
+TEST(BTreeCRUDTest1, 3_InsertDuplicated) {
+  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
+  FIFOBatchBufferPool *para = new FIFOBatchBufferPool(PAGES_SIZE, disk);
+  btreeolc::BTree *btree = new btreeolc::BTree(para);
 
-//   int key_nums = 1024;
-//   std::vector<int> keys(key_nums);
-//   std::iota(keys.begin(), keys.end(), 1);
+  int key_nums = 1024;
+  std::vector<int> keys(key_nums);
+  std::iota(keys.begin(), keys.end(), 1);
 
-//   // random shuffle
-//   std::mt19937 g(1024);
-//   std::shuffle(keys.begin(), keys.end(), g);
+  // random shuffle
+  std::mt19937 g(1024);
+  std::shuffle(keys.begin(), keys.end(), g);
 
-//   for (const auto &key : keys) {
-//     EXPECT_TRUE(btree->Insert(key, key));
-//   }
+  for (const auto &key : keys) {
+    EXPECT_TRUE(btree->Insert(key, key));
+  }
 
-//   btree->Draw(DOTFILE_NAME_BEFORE);
+  btree->Draw(DOTFILE_NAME_BEFORE);
 
-//   for (const auto &key : keys) {
-//     ValueType value = -1;
-//     EXPECT_FALSE(btree->Insert(key, key * key));
-//     EXPECT_TRUE(btree->Get(key, &value));
-//     EXPECT_EQ(key, value);
-//   }
+  for (const auto &key : keys) {
+    ValueType value = -1;
+    EXPECT_FALSE(btree->Insert(key, key * key));
+    EXPECT_TRUE(btree->Get(key, value));
+    EXPECT_EQ(key, value);
+  }
 
-//   delete btree;
-// }
+  delete btree;
+}
 
 // // sequential insert sequential delete
 // TEST(BTreeCRUDTest1, 4_DeleteSeqSmall) {

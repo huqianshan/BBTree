@@ -66,6 +66,8 @@ class Page {
 
   /** helper function Set dirty flag */
   inline void SetDirty(bool is_dirty) { is_dirty_ = is_dirty; }
+  inline void SetReadOnly() { read_only = READ_ONLY; }
+  inline bool IsReadOnly() { read_only == READ_ONLY; }
 
   //  protected:
   static const size_t SIZE_PAGE_HEADER = 8;
@@ -86,6 +88,61 @@ class Page {
   /** True if the page is dirty, i.e. it is different from its corresponding
    * page on disk. */
   bool is_dirty_ = false;
+  bool read_only = false;
   /** Page latch. */
   ReaderWriterLatch rwlatch_;
+};
+
+class ZPage {
+  // There is book-keeping information inside the page that should only be
+  // relevant to the buffer pool manager.
+  friend class BufferPoolManager;
+
+ public:
+  /** Constructor. */
+  ZPage() = default;
+
+  /** Default destructor. */
+  ~ZPage() = default;
+
+  /** @return the actual data contained within this page */
+  inline char *GetData() { return data_; }
+
+  /** set the position of data */
+  inline void SetData(char *buf) {
+    data_ = buf;
+    ResetMemory();
+  }
+
+  /** @return the page id of this page */
+  inline page_id_t GetPageId() { return page_id_; }
+
+  /** @return the leaf ptr of this page */
+  inline void *GetLeafPtr() { return leaf_ptr_; }
+  inline void SetLeafPtr(void *leaf_ptr) { leaf_ptr_ = leaf_ptr; }
+
+  /** @return the pin count of this page */
+  inline int GetPinCount() { return pin_count_.load(); }
+
+  /** @return true if the page in memory has been modified from the page on
+   * disk, false otherwise */
+  inline bool IsDirty() { return is_dirty_; }
+
+  /** helper function Set dirty flag */
+  inline void SetDirty(bool is_dirty) { is_dirty_ = is_dirty; }
+
+  //  private:
+  /** Zeroes out the data that is held within the page. */
+  inline void ResetMemory() { memset(data_, 0, PAGE_SIZE); }
+
+  /** The actual data that is stored within a page. */
+  char *data_ = nullptr;
+  /** The ID of this page. */
+  void *leaf_ptr_ = nullptr;
+  /** The pin count of this page. */
+  std::atomic<int> pin_count_{0};
+  page_id_t page_id_ = INVALID_PAGE_ID;
+  /** True if the page is dirty, i.e. it is different from its corresponding
+   * page on disk. */
+  bool is_dirty_ = false;
 };

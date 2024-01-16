@@ -5,6 +5,8 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include <cerrno>   // for errno
+#include <cstring>  // for strerror
 #include <string>
 
 // #include "stats.h"
@@ -24,6 +26,7 @@ static void assert_msg(bool expr, const char *msg) {
 
 offset_t DiskManager::write_n_pages(page_id_t page_id, size_t nr_pages,
                                     const char *page_data) {
+  std::lock_guard<std::mutex> lock(file_mutex_);
   // DEBUG_PRINT("write_n_pages: page_id=%u, nr_pages=%u\n", page_id,
   // (unsigned)nr_pages);
   write_count_.fetch_add(1, std::memory_order_relaxed);
@@ -37,11 +40,12 @@ offset_t DiskManager::write_n_pages(page_id_t page_id, size_t nr_pages,
 
 offset_t DiskManager::read_n_pages(page_id_t page_id, size_t nr_pages,
                                    char *page_data) {
+  std::lock_guard<std::mutex> lock(file_mutex_);
   read_count_.fetch_add(1, std::memory_order_relaxed);
   ssize_t len = nr_pages * PAGE_SIZE;
   ssize_t offset = page_id * PAGE_SIZE;
   ssize_t ret = pread(fd_, page_data, len, offset);
-  assert_msg(ret > 0, "read failed\n");
+  assert_msg(ret > 0, strerror(errno));
   return offset;
 }
 

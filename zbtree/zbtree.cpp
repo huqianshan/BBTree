@@ -67,7 +67,7 @@ void BTreeLeaf::Init(uint16_t num, page_id_t id) {
   data = NULL;
 }
 
-BTreeLeaf* BTreeLeaf::split(Key& sep, ParallelBufferPoolManager* bpm) {
+BTreeLeaf* BTreeLeaf::split(Key& sep, FIFOBatchBufferPool* bpm) {
   BTreeLeaf* newLeaf = new BTreeLeaf();
   page_id_t new_page_id;
   NodeRAII new_page(bpm, &new_page_id);
@@ -84,7 +84,7 @@ BTreeLeaf* BTreeLeaf::split(Key& sep, ParallelBufferPoolManager* bpm) {
   return newLeaf;
 }
 
-void BTreeLeaf::Print(ParallelBufferPoolManager* bpm) {
+void BTreeLeaf::Print(FIFOBatchBufferPool* bpm) {
   INFO_PRINT("[LeafNode page_id:%lu addr:%p count: %3u ", this->page_id, this,
              this->count);
   NodeRAII node(bpm, this->page_id);
@@ -96,7 +96,7 @@ void BTreeLeaf::Print(ParallelBufferPoolManager* bpm) {
   INFO_PRINT("]\n");
 }
 
-void BTreeLeaf::ToGraph(std::ofstream& out, ParallelBufferPoolManager* bpm) {
+void BTreeLeaf::ToGraph(std::ofstream& out, FIFOBatchBufferPool* bpm) {
   std::string leaf_prefix("LEAF_");
   // Print node name
   out << leaf_prefix << this;
@@ -182,7 +182,7 @@ void BTreeInner::insert(Key k, NodeBase* child) {
   count++;
 }
 
-void BTreeInner::Print(ParallelBufferPoolManager* bpm) {
+void BTreeInner::Print(FIFOBatchBufferPool* bpm) {
   INFO_PRINT("[Internal Page: %4p count: %3u ", this, this->count);
   for (int i = 0; i < this->count; i++) {
     INFO_PRINT(" %lu -> %4p", this->keys[i], this->children[i]);
@@ -201,7 +201,7 @@ void BTreeInner::Print(ParallelBufferPoolManager* bpm) {
   }
 }
 
-void BTreeInner::ToGraph(std::ofstream& out, ParallelBufferPoolManager* bpm) {
+void BTreeInner::ToGraph(std::ofstream& out, FIFOBatchBufferPool* bpm) {
   std::string internal_prefix("INT_");
   std::string leaf_prefix("LEAF_");
   // Print node name
@@ -268,7 +268,7 @@ void BTreeInner::ToGraph(std::ofstream& out, ParallelBufferPoolManager* bpm) {
   }
 };
 
-BTree::BTree(ParallelBufferPoolManager* buffer) {
+BTree::BTree(FIFOBatchBufferPool* buffer) {
   bpm = buffer;
   auto tem = new BTreeLeaf();
   root.store(tem, std::memory_order_release);
@@ -401,7 +401,7 @@ restart:
     Key sep;
     BTreeLeaf* newLeaf;
     {
-      NodeRAII leaf_page(bpm, leaf->page_id);
+      NodeRAII leaf_page(bpm, leaf->page_id, WRITE_FLAG);
       leaf_page.SetDirty(true);
       leaf->data = reinterpret_cast<KeyValueType*>(leaf_page.GetNode());
       newLeaf = leaf->split(sep, bpm);
@@ -425,7 +425,7 @@ restart:
         goto restart;
       }
     }
-    NodeRAII leaf_page(bpm, leaf->page_id);
+    NodeRAII leaf_page(bpm, leaf->page_id, WRITE_FLAG);
     leaf_page.SetDirty(true);
     leaf->data = reinterpret_cast<KeyValueType*>(leaf_page.GetNode());
     auto ret = leaf->insert(k, v);
@@ -471,7 +471,7 @@ restart:
   bool success;
   {
     BTreeLeaf* leaf = static_cast<BTreeLeaf*>(node);
-    NodeRAII leaf_page(bpm, leaf->page_id);
+    NodeRAII leaf_page(bpm, leaf->page_id, READ_ONLY);
     leaf->data = reinterpret_cast<KeyValueType*>(leaf_page.GetNode());
     unsigned pos = leaf->lowerBound(k);
 

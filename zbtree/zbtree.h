@@ -27,6 +27,10 @@ enum class PageType : uint8_t { BTreeInner = 1, BTreeLeaf = 2 };
 static const uint64_t BaseNodeSize = 16;
 static const uint64_t CacheLineSize = 64;
 
+#ifdef UNITTEST_
+static const uint64_t LeafNodeMaxEntries = 5;
+static const uint64_t InnerNodeMaxEntries = 3;
+#else
 // This is the element numbers of the leaf node
 static const uint64_t LeafNodeMaxEntries =
     (LeafNodeSize - BaseNodeSize - sizeof(uint64_t) - sizeof(void *)) /
@@ -34,7 +38,7 @@ static const uint64_t LeafNodeMaxEntries =
 
 static const uint64_t InnerNodeMaxEntries =
     (InnerNodeSize - BaseNodeSize) / (sizeof(Key) + sizeof(void *)) - 2;
-
+#endif
 /**
  * @brief every lock add the 2th bits.
  *
@@ -122,11 +126,11 @@ struct BTreeLeaf : public BTreeLeafBase {
 
   void Init(uint16_t num = 0, page_id_t id = 0);
 
-  BTreeLeaf *split(Key &sep, ParallelBufferPoolManager *bpm);
+  BTreeLeaf *split(Key &sep, FIFOBatchBufferPool *bpm);
 
-  void Print(ParallelBufferPoolManager *bpm);
+  void Print(FIFOBatchBufferPool *bpm);
 
-  void ToGraph(std::ofstream &out, ParallelBufferPoolManager *bpm);
+  void ToGraph(std::ofstream &out, FIFOBatchBufferPool *bpm);
 };
 
 struct BTreeInnerBase : public NodeBase {
@@ -162,16 +166,16 @@ struct alignas(InnerNodeSize) BTreeInner : public BTreeInnerBase {
 
   void insert(Key k, NodeBase *child);
 
-  void Print(ParallelBufferPoolManager *bpm);
+  void Print(FIFOBatchBufferPool *bpm);
 
-  void ToGraph(std::ofstream &out, ParallelBufferPoolManager *bpm);
+  void ToGraph(std::ofstream &out, FIFOBatchBufferPool *bpm);
 };
 // template <class Key, class Value>
 struct alignas(CacheLineSize) BTree {
   std::atomic<NodeBase *> root;
-  ParallelBufferPoolManager *bpm;
+  FIFOBatchBufferPool *bpm;
 
-  BTree(ParallelBufferPoolManager *buffer);
+  BTree(FIFOBatchBufferPool *buffer);
 
   ~BTree();
 

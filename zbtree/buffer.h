@@ -20,6 +20,7 @@ class BufferPoolManager {
   using Mutex = std::mutex;
   using Lock_guard = std::lock_guard<Mutex>;
   friend class ParallelBufferPoolManager;
+  friend class FIFOBatchBufferPool;
 
   /**
    * Creates a new BufferPoolManager.
@@ -85,13 +86,14 @@ class BufferPoolManager {
    * page
    */
   Page *NewPage(page_id_t *page_id);
+  Page *AddReadOnlyPage(page_id_t page_id);
 
   /**
    * Deletes a page from the buffer pool. caller after Unpin. add frame of
    * pageid to free_list
    * @param page_id id of page to be deleted
-   * @return false if the page exists but could not be deleted, true if the page
-   * didn't exist or deletion succeeded
+   * @return false if the page exists but could not be deleted, true if the
+   * page didn't exist or deletion succeeded
    */
   bool DeletePage(page_id_t page_id);
 
@@ -155,13 +157,9 @@ class BufferPoolManager {
   std::unordered_map<page_id_t, frame_id_t> page_table_;
   std::unordered_map<page_id_t, frame_id_t> page_id_counts_;
   /** Replacer to find unpinned pages for replacement. */
-  // LRUReplacer *replacer_;
-  FIFOReplacer *replacer_;
+  LRUReplacer *replacer_;
   /** List of free pages. */
   std::list<frame_id_t> free_list_;
-  /** This latch protects shared data structures. We recommend updating this
-   * comment to describe what it protects. */
-  // std::mutex latch_;
 
   // big lock for buffer pool manager instance
   pthread_mutex_t mutex_;
@@ -263,7 +261,7 @@ class ParallelBufferPoolManager {
 typedef std::pair<Page *, u64> Slot;
 class CircleFlusher {
  public:
-  CircleFlusher(ZnsManager *disk_manager, u64 flush_size)
+  CircleFlusher(DiskManager *disk_manager, u64 flush_size)
       : disk_manager_(disk_manager), flush_size_(flush_size), stop_(false) {
     flush_pages_ = new CircleBuffer<Slot>(flush_size_);
     flush_thread_ = std::thread([this] { this->FlushThread(); });
@@ -309,19 +307,24 @@ class CircleFlusher {
     u64 length = slot.second;
 
     // :NOTE: :hjl:  may be need return and sleep
-    ATOMIC_SPIN_UNTIL(page->GetPinCount(), 0);
-
+    for (u64 i = 0; i < length; i++) {
+      // DEBUG_PRINT("%lu pin count %d \n", i, page[i].GetPinCount());
+      ATOMIC_SPIN_UNTIL(page[i].GetPinCount(), 0);
+    }
     disk_manager_->write_n_pages(page->GetPageId(), length, page->GetData());
+    INFO_PRINT("[Flusher] write page %lu length %lu\n", page->GetPageId(),
+               length);
     free(page->GetData());
-    delete page;
+    delete[] page;
   }
 
  private:
   u64 flush_size_;
   u64 begin_ = 0;
   CircleBuffer<Slot> *flush_pages_;
-  // DiskManager *disk_manager_;
-  ZnsManager *disk_manager_;
+  DiskManager *disk_manager_;
+  // FIFOBatchBufferPool *buffer_pool_manager_;
+  // ZnsManager *disk_manager_;
   std::mutex mutex_;
   std::condition_variable cv_;
   std::thread flush_thread_;
@@ -338,7 +341,7 @@ class FIFOBatchBufferPool {
    * @brief if exists in batchbuffer  pool no need to modify the page_id.
    * if not then need update the page_id
    */
-  Page *FetchPage(page_id_t *page_id);
+  Page *FetchPage(page_id_t *page_id, bool readonly = false);
   /**
    * @brief add lock
    */
@@ -347,10 +350,12 @@ class FIFOBatchBufferPool {
    * @brief no lock
    */
   Page *NewPageImp(page_id_t *page_id, u64 length = 1);
+  Page *GetPageImp(page_id_t page_id);
   bool UnpinPage(page_id_t page_id, u64 length, bool is_dirty);
   bool UnpinPage(page_id_t page_id, bool is_dirty);
   bool DeletePage(page_id_t page_id, u64 length);
   bool FlushPage(page_id_t page_id, u64 length);
+  void FlushAllPages();
 
   Page *GrabPageFrame(u64 length = 1);
 
@@ -397,6 +402,8 @@ class FIFOBatchBufferPool {
   void Print();
 
  private:
+  BufferPoolManager *read_buffer_;
+
   FIFOBacthReplacer *replacer_;
   std::unordered_map<page_id_t, Page *> page_table_;
   std::unordered_map<page_id_t, frame_id_t> page_id_counts_;
@@ -423,14 +430,15 @@ class FIFOBatchBufferPool {
 
 class NodeRAII {
  public:
-  NodeRAII(ParallelBufferPoolManager *buffer_pool_manager, page_id_t page_id)
+  NodeRAII(FIFOBatchBufferPool *buffer_pool_manager, page_id_t &page_id,
+           bool read_only = true)
       : buffer_pool_manager_(buffer_pool_manager), page_id_(page_id) {
-    page_ = buffer_pool_manager_->FetchPage(page_id_);
+    page_ = buffer_pool_manager_->FetchPage(&page_id_, read_only);
     CheckAndInitPage();
     // DEBUG_PRINT("raii fetch\n");
   }
 
-  NodeRAII(ParallelBufferPoolManager *buffer_pool_manager, page_id_t *page_id)
+  NodeRAII(FIFOBatchBufferPool *buffer_pool_manager, page_id_t *page_id)
       : buffer_pool_manager_(buffer_pool_manager) {
     page_ = buffer_pool_manager_->NewPage(&page_id_);
     CheckAndInitPage();
@@ -467,7 +475,7 @@ class NodeRAII {
   }
 
  private:
-  ParallelBufferPoolManager *buffer_pool_manager_;
+  FIFOBatchBufferPool *buffer_pool_manager_;
   page_id_t page_id_;
   Page *page_ = nullptr;
   void *node_ = nullptr;

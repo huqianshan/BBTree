@@ -62,6 +62,8 @@ class DiskManager : public StorageManager {
 
   std::atomic_uint64_t write_count_;
   std::atomic_uint64_t read_count_;
+
+  std::mutex file_mutex_;
 };
 
 // extern DiskManager *db_io;
