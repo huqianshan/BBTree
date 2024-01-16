@@ -602,7 +602,8 @@ void BTree::GetNodeNums() const {
     avgLeafNodeKeys /= leafNodeCount;
   }
   INFO_PRINT(
-      "Tree Height: %2u InnerNodeCount: %4lu LeafNodeCount: %6lu Avg Inner "
+      "[BaseTree] Tree Height: %2u InnerNodeCount: %4lu LeafNodeCount: %6lu "
+      "Avg Inner "
       "Node "
       "pairs: %3.1lf "
       "Avg Leaf Node pairs %3.1lf\n",

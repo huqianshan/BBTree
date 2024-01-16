@@ -512,13 +512,14 @@ void ParallelBufferPoolManager::Print() {
   }
   avg /= total;
   auto sz = total;
-  INFO_PRINT("[BufferPool] Count: %3lu  hits\n", avg);
+  INFO_PRINT("[BufferPool] Avg Count For a BufferPage: %3lu  hits  ", avg);
   std::vector<float> percentiles = {0.0, 0.1, 0.2, 0.3, 0.4,   0.5,
-                                    0.6, 0.7, 0.8, 0.9, 0.999, 0.99999};
+                                    0.6, 0.7, 0.8, 0.9, 0.999, 0.9999999};
+  INFO_PRINT("  Percentile:")
   for (auto& p : percentiles) {
-    INFO_PRINT("[BufferPool] Percentile: %2.2lf%% %4u\n", p * 100,
-               page_ids[size_t(p * sz)]);
+    INFO_PRINT(" {%2.3lf%%->%4u}, ", p * 100, page_ids[size_t(p * sz)]);
   }
+  INFO_PRINT("\n");
 
   INFO_PRINT(
       "[ParaBufferPool] Instance Nums:%2lu Page table size:%4lu Replacer size: "
