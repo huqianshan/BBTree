@@ -45,6 +45,7 @@ class Page {
 
   /** @return the pin count of this page */
   inline int GetPinCount() { return pin_count_.load(); }
+  inline int GetReadCount() { return read_count_.load(); }
 
   /** @return true if the page in memory has been modified from the page on
    * disk, false otherwise */
@@ -66,8 +67,18 @@ class Page {
 
   /** helper function Set dirty flag */
   inline void SetDirty(bool is_dirty) { is_dirty_ = is_dirty; }
-  inline void SetReadOnly() { read_only = READ_ONLY; }
-  inline bool IsReadOnly() { read_only == READ_ONLY; }
+  inline void SetStatus(PageStatus status) {
+    status_.store(status, std::memory_order_release);
+  }
+  inline bool IsActive() {
+    return status_.load(std::memory_order_acquire) == ACTIVE;
+  }
+  inline bool IsEvicted() {
+    return status_.load(std::memory_order_acquire) == EVICTED;
+  }
+  inline bool IsFlushed() {
+    return status_.load(std::memory_order_acquire) == FLUSHED;
+  }
 
   //  protected:
   static const size_t SIZE_PAGE_HEADER = 8;
@@ -83,12 +94,14 @@ class Page {
   /** The ID of this page. */
   page_id_t page_id_ = INVALID_PAGE_ID;
   void *leaf_ptr_ = nullptr;
-  /** The pin count of this page. */
+  /** The write count of this page. */
   std::atomic<int> pin_count_{0};
+  /** The read count of this page. */
+  std::atomic<int> read_count_{0};
+  std::atomic<int> status_{0};
   /** True if the page is dirty, i.e. it is different from its corresponding
    * page on disk. */
   bool is_dirty_ = false;
-  bool read_only = false;
   /** Page latch. */
   ReaderWriterLatch rwlatch_;
 };

@@ -14,6 +14,7 @@
 #define READ_ONLY (true)
 #define WRITE_FLAG (false)
 // namespace BTree {
+using u8 = uint8_t;
 using u64 = uint64_t;
 using u32 = uint32_t;
 using i32 = int32_t;
@@ -43,7 +44,7 @@ const u32 SPIN_LIMIT = 6;
   u32 atomic_step_ = 0;                                   \
   while (ptr != status) {                                 \
     auto limit = 1 << std::min(atomic_step_, SPIN_LIMIT); \
-    for (uint32_t i = 0; i < limit; ++i) {                \
+    for (uint32_t v_ = 0; v_ < limit; v_++) {             \
       _mm_pause();                                        \
     };                                                    \
     atomic_step_++;                                       \
@@ -65,6 +66,12 @@ enum LatchMode {
   LATCH_MODE_UPDATE,  // not supported
   LATCH_MODE_SCAN,    // not supported
   LATCH_MODE_NOP,     // not supported
+};
+
+enum PageStatus {
+  ACTIVE = 0,
+  EVICTED,
+  FLUSHED,
 };
 
 class Node;

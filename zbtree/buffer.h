@@ -258,81 +258,43 @@ class ParallelBufferPoolManager {
   DiskManager *disk_manager_;
 };
 
+class FIFOBatchBufferPool;
+
 typedef std::pair<Page *, u64> Slot;
 class CircleFlusher {
  public:
-  CircleFlusher(DiskManager *disk_manager, u64 flush_size)
-      : disk_manager_(disk_manager), flush_size_(flush_size), stop_(false) {
-    flush_pages_ = new CircleBuffer<Slot>(flush_size_);
-    flush_thread_ = std::thread([this] { this->FlushThread(); });
-  }
+  CircleFlusher(DiskManager *disk_manager, FIFOBatchBufferPool *buffer,
+                u64 flush_size);
 
-  ~CircleFlusher() {
-    {
-      std::lock_guard<std::mutex> lock(mutex_);
-      stop_ = true;
-      cv_.notify_all();
-    }
-    flush_thread_.join();
-    delete flush_pages_;
-  }
+  ~CircleFlusher();
 
-  void AddPage(Slot slot) {
-    while (!flush_pages_->Push(slot)) {
-      _mm_pause();
-      // std::this_thread::sleep_for(std::chrono::microseconds(1));
-    }
-    cv_.notify_one();
-  }
+  void AddPage(Slot slot);
 
-  void FlushThread() {
-    while (true) {
-      std::unique_lock<std::mutex> lock(mutex_);
-      cv_.wait(lock, [this] { return stop_ || !flush_pages_->IsEmpty(); });
-      if (stop_ && flush_pages_->IsEmpty()) {
-        return;
-      }
-      FlushPage();
-    }
-  }
+  void FlushThread();
 
-  void FlushPage() {
-    Slot slot;
-    bool ret = flush_pages_->Pop(slot);
-    // no need to check ret.
-    if (!ret) {
-      return;
-    }
-    Page *page = slot.first;
-    u64 length = slot.second;
+  void FlushPage();
 
-    // :NOTE: :hjl:  may be need return and sleep
-    for (u64 i = 0; i < length; i++) {
-      // DEBUG_PRINT("%lu pin count %d \n", i, page[i].GetPinCount());
-      ATOMIC_SPIN_UNTIL(page[i].GetPinCount(), 0);
-    }
-    disk_manager_->write_n_pages(page->GetPageId(), length, page->GetData());
-    INFO_PRINT("[Flusher] write page %lu length %lu\n", page->GetPageId(),
-               length);
-    free(page->GetData());
-    delete[] page;
+  u64 Size() {
+    return flush_pages_->Size();
+    ;
   }
 
  private:
-  u64 flush_size_;
-  u64 begin_ = 0;
+  bool stop_;
+
   CircleBuffer<Slot> *flush_pages_;
   DiskManager *disk_manager_;
-  // FIFOBatchBufferPool *buffer_pool_manager_;
   // ZnsManager *disk_manager_;
+  FIFOBatchBufferPool *buffer_pool_manager_;
+
   std::mutex mutex_;
   std::condition_variable cv_;
   std::thread flush_thread_;
-  bool stop_;
 };
 
 class FIFOBatchBufferPool {
  public:
+  friend class CircleFlusher;
   explicit FIFOBatchBufferPool(size_t pool_size, DiskManager *disk_manager);
 
   ~FIFOBatchBufferPool();
@@ -341,7 +303,8 @@ class FIFOBatchBufferPool {
    * @brief if exists in batchbuffer  pool no need to modify the page_id.
    * if not then need update the page_id
    */
-  Page *FetchPage(page_id_t *page_id, bool readonly = false);
+  Page *FetchPage(page_id_t *page_id);
+  Page *FetchReadOnlyPage(page_id_t page_id);
   /**
    * @brief add lock
    */
@@ -353,6 +316,7 @@ class FIFOBatchBufferPool {
   Page *GetPageImp(page_id_t page_id);
   bool UnpinPage(page_id_t page_id, u64 length, bool is_dirty);
   bool UnpinPage(page_id_t page_id, bool is_dirty);
+  bool UnpinReadOnlyPage(page_id_t page_id);
   bool DeletePage(page_id_t page_id, u64 length);
   bool FlushPage(page_id_t page_id, u64 length);
   void FlushAllPages();
@@ -379,31 +343,13 @@ class FIFOBatchBufferPool {
 
   void Unpin(frame_id_t frame_id);
 
-  void GrabLock() {
-    int ret = pthread_mutex_lock(&mutex_);
-    VERIFY(!ret);
-  }
-
-  void ReleaseLock() {
-    int ret = pthread_mutex_unlock(&mutex_);
-    VERIFY(!ret);
-  }
-
-  void SignalForFreeFrame() {
-    int ret = pthread_cond_signal(&cond_);
-    VERIFY(!ret);
-  }
-
-  void WaitForFreeFrame() {
-    int ret = pthread_cond_wait(&cond_, &mutex_);
-    VERIFY(!ret);
-  }
   u64 Size();
   void Print();
 
  private:
   BufferPoolManager *read_buffer_;
 
+  LRUReplacer *read_replacer_;
   FIFOBacthReplacer *replacer_;
   std::unordered_map<page_id_t, Page *> page_table_;
   std::unordered_map<page_id_t, frame_id_t> page_id_counts_;
@@ -415,8 +361,7 @@ class FIFOBatchBufferPool {
   u64 max_wp_;
 
   // big lock for buffer pool manager instance
-  pthread_mutex_t mutex_;
-  pthread_cond_t cond_;
+  std::mutex buffer_mutex_;
 
   // count
   u64 count_;
@@ -431,10 +376,16 @@ class FIFOBatchBufferPool {
 class NodeRAII {
  public:
   NodeRAII(FIFOBatchBufferPool *buffer_pool_manager, page_id_t &page_id,
-           bool read_only = true)
+           bool read_only = READ_ONLY)
       : buffer_pool_manager_(buffer_pool_manager), page_id_(page_id) {
-    page_ = buffer_pool_manager_->FetchPage(&page_id_, read_only);
+    if (read_only) {
+      page_ = buffer_pool_manager_->FetchReadOnlyPage(page_id_);
+    } else {
+      page_ = buffer_pool_manager_->FetchPage(&page_id_);
+      page_id = page_id_;
+    }
     CheckAndInitPage();
+    read_only_ = read_only;
     // DEBUG_PRINT("raii fetch\n");
   }
 
@@ -443,6 +394,7 @@ class NodeRAII {
     page_ = buffer_pool_manager_->NewPage(&page_id_);
     CheckAndInitPage();
     *page_id = page_id_;
+    read_only_ = WRITE_FLAG;
   }
 
   void CheckAndInitPage() {
@@ -457,8 +409,11 @@ class NodeRAII {
 
   ~NodeRAII() {
     if (page_ != nullptr) {
-      buffer_pool_manager_->UnpinPage(page_id_, dirty_);
-      // DEBUG_PRINT("raii unpin\n");
+      if (read_only_) {
+        buffer_pool_manager_->UnpinReadOnlyPage(page_id_);
+      } else {
+        buffer_pool_manager_->UnpinPage(page_id_, dirty_);
+      }
     }
   }
 
@@ -480,4 +435,5 @@ class NodeRAII {
   Page *page_ = nullptr;
   void *node_ = nullptr;
   bool dirty_;
+  bool read_only_;
 };

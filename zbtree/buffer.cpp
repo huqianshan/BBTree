@@ -584,6 +584,70 @@ void ParallelBufferPoolManager::Print() {
          count, miss, miss_ratio, hit, hit_ratio);
 }
 
+CircleFlusher::CircleFlusher(DiskManager* disk_manager,
+                             FIFOBatchBufferPool* buffer, u64 flush_size)
+    : disk_manager_(disk_manager), buffer_pool_manager_(buffer), stop_(false) {
+  flush_pages_ = new CircleBuffer<Slot>(flush_size);
+  flush_thread_ = std::thread([this] { this->FlushThread(); });
+}
+
+CircleFlusher::~CircleFlusher() {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    stop_ = true;
+    cv_.notify_all();
+  }
+  flush_thread_.join();
+  delete flush_pages_;
+}
+
+void CircleFlusher::AddPage(Slot slot) {
+  while (!flush_pages_->Push(slot)) {
+    _mm_pause();
+    // std::this_thread::sleep_for(std::chrono::microseconds(1));
+  }
+  cv_.notify_one();
+}
+
+void CircleFlusher::FlushThread() {
+  while (true) {
+    std::unique_lock<std::mutex> lock(mutex_);
+    cv_.wait(lock, [this] { return stop_ || !flush_pages_->IsEmpty(); });
+    if (stop_ && flush_pages_->IsEmpty()) {
+      return;
+    }
+    FlushPage();
+  }
+}
+
+void CircleFlusher::FlushPage() {
+  Slot slot;
+  bool ret = flush_pages_->Pop(slot);
+  // no need to check ret.
+  if (!ret) {
+    return;
+  }
+  Page* page = slot.first;
+  u64 length = slot.second;
+
+  // :NOTE: :hjl:  may be need return and sleep
+  for (u64 i = 0; i < length; i++) {
+    // DEBUG_PRINT("%lu pin count %d \n", i, page[i].GetPinCount());
+    ATOMIC_SPIN_UNTIL(page[i].GetPinCount(), 0);
+  }
+  disk_manager_->write_n_pages(page->GetPageId(), length, page->GetData());
+  INFO_PRINT("[Flusher] write page %lu length %lu\n", page->GetPageId(),
+             length);
+  for (u64 i = 0; i < length; i++) {
+    // DEBUG_PRINT("%lu pin count %d \n", i, page[i].GetPinCount());
+    ATOMIC_SPIN_UNTIL(page[i].GetReadCount(), 0);
+    buffer_pool_manager_->page_table_.erase(page[i].GetPageId());
+  }
+
+  free(page->GetData());
+  delete[] page;
+}
+
 FIFOBatchBufferPool::FIFOBatchBufferPool(size_t pool_size,
                                          DiskManager* disk_manager) {
   // Allocate and create individual BufferPoolManagerInstances
@@ -593,14 +657,10 @@ FIFOBatchBufferPool::FIFOBatchBufferPool(size_t pool_size,
   page_table_.reserve(pool_size);
   disk_manager_ = disk_manager;
   pool_size_ = pool_size;
-  flusher_ = new CircleFlusher(disk_manager, CIRCLE_FLUSHER_SIZE);
+  flusher_ = new CircleFlusher(disk_manager, this, CIRCLE_FLUSHER_SIZE);
   cur_wp_ = 0;
   max_wp_ = 1024ull * 1024 * 1024;
 
-  int ret = pthread_mutex_init(&mutex_, nullptr);
-  VERIFY(!ret);
-  ret = pthread_cond_init(&cond_, nullptr);
-  VERIFY(!ret);
   count_ = hit_ = miss_ = 0;
 }
 
@@ -641,8 +701,8 @@ Page* FIFOBatchBufferPool::GrabPageFrame(u64 length) {
     //  length);
 
     for (size_t i = 0; i < length; i++) {
-      page_table_.erase(ret_page[i].GetPageId());
-      // ret_page[i].SetReadOnly();
+      // page_table_.erase(ret_page[i].GetPageId());
+      ret_page[i].SetStatus(EVICTED);
       // ret_page[i].SetDirty(false);
     }
 
@@ -674,9 +734,8 @@ Page* FIFOBatchBufferPool::GrabPageFrame(u64 length) {
 }
 
 Page* FIFOBatchBufferPool::NewPage(page_id_t* page_id, u64 length) {
-  GrabLock();
+  std::lock_guard<std::mutex> lk(buffer_mutex_);
   auto ret_page = NewPageImp(page_id, length);
-  ReleaseLock();
   return ret_page;
 }
 
@@ -700,6 +759,7 @@ Page* FIFOBatchBufferPool::NewPageImp(page_id_t* page_id, u64 length) {
   for (u64 i = 0; i < length; i++) {
     ret_page[i].page_id_ = page_id[i];
     ret_page[i].pin_count_ = 1;
+    ret_page[i].read_count_ = 0;
     ret_page[i].is_dirty_ = true;
     // ret_page[i].ResetMemory();
     page_table_[page_id[i]] = ret_page + i;
@@ -716,9 +776,7 @@ Page* FIFOBatchBufferPool::GetPageImp(page_id_t page_id) {
   if (page_table_.find(page_id) != page_table_.end()) {
     // 1.1 first find in fifo write buffer
     ret_page = page_table_[page_id];
-    // need update pin_count ;
-    ret_page->pin_count_++;
-    // replacer_->Pin();
+    // need update pin_count in outer function;
     // DEBUG_PRINT("fetch *page_id:%4u frame_id:%4u\n", *page_id, cur_frame_id);
     page_id_counts_[page_id]++;
     hit_++;
@@ -726,61 +784,76 @@ Page* FIFOBatchBufferPool::GetPageImp(page_id_t page_id) {
   return ret_page;
 }
 
-Page* FIFOBatchBufferPool::FetchPage(page_id_t* page_id, bool readonly) {
-  GrabLock();
+Page* FIFOBatchBufferPool::FetchReadOnlyPage(page_id_t page_id) {
+  std::lock_guard<std::mutex> lk(buffer_mutex_);
   count_++;
   Page* ret_page = nullptr;
-
-  // 1.1 find in fifo buffer first
-  ret_page = GetPageImp(*page_id);
-  // if (ret_page != nullptr) {
-  // ReleaseLock();
-  // return ret_page;
-  // }
-
-  if (readonly) {
-    if (ret_page != nullptr) {
-      goto exit;
-    }
+  ret_page = GetPageImp(page_id);
+  if (ret_page == nullptr || ret_page->IsFlushed()) {
     miss_++;
-    // 1.2 find in read buffer second, enusre that the page is flushed
-    // if not in fifo buffer
-    ret_page = read_buffer_->AddReadOnlyPage(*page_id);
+    ret_page = read_buffer_->AddReadOnlyPage(page_id);
   } else {
-    if (ret_page != nullptr && !ret_page->IsReadOnly()) {
-      goto exit;
-    }
-    // 2.2 if not exists in fifo buffer,
-    // 2.2.1 try to tranfer the page from read buffer to fifo buffer
-    // if it exists in read buffer
-    miss_++;
-    // 2.2.2 read the page from raw id on zns, allocate a new page_id in zns
-    page_id_t tmp_page_id = INVALID_PAGE_ID;
-    ret_page = NewPageImp(&tmp_page_id);
-    disk_manager_->read_page(*page_id, ret_page->data_);
-    *page_id = tmp_page_id;
+    // ret_page exists and not flushed
+    hit_++;
   }
-exit:
-  ReleaseLock();
+  ret_page->read_count_++;
   return ret_page;
 }
 
+Page* FIFOBatchBufferPool::FetchPage(page_id_t* page_id) {
+  std::lock_guard<std::mutex> lk(buffer_mutex_);
+  count_++;
+  Page* ret_page = nullptr;
+  // 1.1 find in fifo buffer first
+  ret_page = GetPageImp(*page_id);
+  if (ret_page != nullptr && !ret_page->IsEvicted()) {
+    hit_++;
+    ret_page->pin_count_++;
+    return ret_page;
+  }
+  // 2.1 if not exists in fifo buffer,
+  // 2.2 try to tranfer the page from read buffer to fifo buffer
+  // if it exists in read buffer
+  // :TODO: :hjl:
+
+  miss_++;
+  // 3. read the page from raw id on zns, allocate a new page_id in zns
+  page_id_t tmp_page_id = INVALID_PAGE_ID;
+  Page* new_page = NewPageImp(&tmp_page_id);
+  if (!ret_page && !ret_page->IsFlushed()) {
+    memcpy(new_page->GetData(), ret_page->GetData(), PAGE_SIZE);
+  } else {
+    disk_manager_->read_page(*page_id, ret_page->data_);
+  }
+  *page_id = tmp_page_id;
+
+  return ret_page;
+}
+
+bool FIFOBatchBufferPool::UnpinReadOnlyPage(page_id_t page_id) {
+  std::lock_guard<std::mutex> lk(buffer_mutex_);
+  if (page_table_.find(page_id) == page_table_.end()) {
+    read_buffer_->UnpinPage(page_id, false);
+    return false;
+  }
+  Page* cur_page = page_table_[page_id];
+  if (cur_page->GetReadCount() > 0) {
+    cur_page->read_count_--;
+  }
+  return true;
+}
+
 bool FIFOBatchBufferPool::UnpinPage(page_id_t page_id, bool is_dirty) {
-  GrabLock();
+  std::lock_guard<std::mutex> lk(buffer_mutex_);
 
   // 0 Make sure you can unpin page_id
   if (page_table_.find(page_id) == page_table_.end()) {
-    // 0.1 page id may exists in read buffer
-    read_buffer_->UnpinPage(page_id, is_dirty);
-    ReleaseLock();
     return true;
   }
   // 1 get page object
   // frame_id_t cur_frame_id = page_table_[page_id];
   Page* cur_page = page_table_[page_id];
-
   // DEBUG_PRINT("unpin page_id:%4u frame_id:%4u\n", page_id, cur_frame_id);
-
   if (is_dirty) {
     // if page is dirty but is_dirty indicates non-dirty,
     // it also should be dirty
@@ -790,25 +863,18 @@ bool FIFOBatchBufferPool::UnpinPage(page_id_t page_id, bool is_dirty) {
   if (cur_page->GetPinCount() > 0) {
     cur_page->pin_count_--;
   }
-  // if (cur_page->GetPinCount() == 0) {
-  // replacer_->Unpin(cur_frame_id);
-  // SignalForFreeFrame();
-  // }
-  ReleaseLock();
   return true;
 }
 
 bool FIFOBatchBufferPool::DeletePage(page_id_t page_id, u64 length) {
-  GrabLock();
+  std::lock_guard<std::mutex> lk(buffer_mutex_);
 
   if (page_table_.find(page_id) == page_table_.end()) {
-    ReleaseLock();
     return false;
   }
 
   Page* cur_page = page_table_[page_id];
   if (cur_page->GetPinCount() != 0) {
-    ReleaseLock();
     return false;
   }
 
@@ -824,15 +890,13 @@ bool FIFOBatchBufferPool::DeletePage(page_id_t page_id, u64 length) {
     delete[] ret_page;
     return true;
   }
-  ReleaseLock();
   return false;
 }
 
 bool FIFOBatchBufferPool::FlushPage(page_id_t page_id, u64 length) {
-  GrabLock();
+  std::lock_guard<std::mutex> lk(buffer_mutex_);
   if (page_id == INVALID_PAGE_ID ||
       page_table_.find(page_id) == page_table_.end()) {
-    ReleaseLock();
     return false;
   }
 
@@ -841,7 +905,6 @@ bool FIFOBatchBufferPool::FlushPage(page_id_t page_id, u64 length) {
     disk_manager_->write_page(page_id, cur_page->GetData());
     cur_page->is_dirty_ = false;
   }
-  ReleaseLock();
   return true;
 }
 
