@@ -636,16 +636,17 @@ void CircleFlusher::FlushPage() {
     ATOMIC_SPIN_UNTIL(page[i].GetPinCount(), 0);
   }
   disk_manager_->write_n_pages(page->GetPageId(), length, page->GetData());
-  INFO_PRINT("[Flusher] write page %lu length %lu\n", page->GetPageId(),
-             length);
+  // INFO_PRINT("[Flusher] write page %lu length %lu\n", page->GetPageId(),
+  //  length);
   for (u64 i = 0; i < length; i++) {
     // DEBUG_PRINT("%lu pin count %d \n", i, page[i].GetPinCount());
-    ATOMIC_SPIN_UNTIL(page[i].GetReadCount(), 0);
     buffer_pool_manager_->page_table_.erase(page[i].GetPageId());
+    ATOMIC_SPIN_UNTIL(page[i].GetReadCount(), 0);
+    page[i].SetStatus(FLUSHED);
   }
 
-  free(page->GetData());
-  delete[] page;
+  // free(page->GetData());
+  // delete[] page;
 }
 
 FIFOBatchBufferPool::FIFOBatchBufferPool(size_t pool_size,
@@ -820,14 +821,14 @@ Page* FIFOBatchBufferPool::FetchPage(page_id_t* page_id) {
   // 3. read the page from raw id on zns, allocate a new page_id in zns
   page_id_t tmp_page_id = INVALID_PAGE_ID;
   Page* new_page = NewPageImp(&tmp_page_id);
-  if (!ret_page && !ret_page->IsFlushed()) {
+  if (ret_page != nullptr && !ret_page->IsFlushed()) {
     memcpy(new_page->GetData(), ret_page->GetData(), PAGE_SIZE);
   } else {
-    disk_manager_->read_page(*page_id, ret_page->data_);
+    disk_manager_->read_page(*page_id, new_page->data_);
   }
   *page_id = tmp_page_id;
 
-  return ret_page;
+  return new_page;
 }
 
 bool FIFOBatchBufferPool::UnpinReadOnlyPage(page_id_t page_id) {
@@ -929,3 +930,19 @@ void FIFOBatchBufferPool::FlushAllPages() {
 }
 
 u64 FIFOBatchBufferPool::Size() { return replacer_->Size(); }
+
+u64 FIFOBatchBufferPool::GetFileSize() {
+  u64 total = 0;
+  total += disk_manager_->get_file_size();
+  return total;
+};
+u64 FIFOBatchBufferPool::GetReadCount() {
+  u64 total = 0;
+  total += disk_manager_->get_read_count();
+  return total;
+};
+u64 FIFOBatchBufferPool::GetWriteCount() {
+  u64 total = 0;
+  total += disk_manager_->get_write_count();
+  return total;
+};

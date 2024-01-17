@@ -24,7 +24,7 @@ FetchContent_MakeAvailable(googletest)
 add_executable(UnitTests insert_delete_test.cpp ${ZBTREE_CPPS} ${ZNS_CPPS})
 target_link_libraries(UnitTests gtest_main pthread zbd)
 add_test(NAME runUnitTests COMMAND UnitTests)
-
+target_compile_definitions(UnitTests PRIVATE UNITTEST_)
 
 add_executable(btree-olc benchmark.cpp ${ZBTREE_CPPS} ${ZNS_CPPS})
 target_link_libraries(btree-olc

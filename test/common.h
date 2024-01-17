@@ -4,7 +4,7 @@
 #include "timer.h"
 
 // namespace BTree {
-const u32 BUFFER_POOL_SIZE = 1024 * 64;  // in Bytes
+const u32 BUFFER_POOL_SIZE = 1024 * 1024 * 16;  // in Bytes
 const u32 INSTANCE_SIZE = 1;
 const u32 PAGES_SIZE = BUFFER_POOL_SIZE / (INSTANCE_SIZE * PAGE_SIZE);
 #define WORK_DIR "/home/hjl/Code/Academic/BBTree/build/"

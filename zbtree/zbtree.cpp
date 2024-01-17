@@ -45,7 +45,7 @@ bool BTreeLeaf::insert(Key k, Value p) {
     unsigned pos = lowerBound(k);
     if ((pos < count) && (data[pos].first == k)) {
       // Upsert
-      data[pos].second = p;
+      // data[pos].second = p;
       return false;
     }
     memmove(data + pos + 1, data + pos, sizeof(KeyValueType) * (count - pos));

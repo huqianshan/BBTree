@@ -27,7 +27,7 @@ const std::string TREE_NAME = "BTreeBufferOnExt4SSD";
 // #define LATENCY
 // #define PM_PCM
 #define DRAM_CONSUMPTION
-#define GDB
+// #define GDB
 
 enum OP { OP_INSERT, OP_READ, OP_DELETE, OP_UPDATE, OP_SCAN };
 
@@ -157,9 +157,10 @@ void run_test(int num_thread, string load_data, string run_data,
   Timer tr;
   tr.start();
 
-  // DiskManager *disk = new DiskManager(FILE_NAME.c_str());
-  ParallelBufferPoolManager *para = new ParallelBufferPoolManager(
-      INSTANCE_SIZE, PAGES_SIZE, FILE_NAME, false);
+  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
+  // ParallelBufferPoolManager *para = new ParallelBufferPoolManager(
+  // INSTANCE_SIZE, PAGES_SIZE, FILE_NAME, false);
+  FIFOBatchBufferPool *para = new FIFOBatchBufferPool(PAGES_SIZE, disk);
   // BTree::BTree *tree = new BTree::BTree(para);
   btreeolc::BTree *tree = new btreeolc::BTree(para);
 

@@ -295,7 +295,8 @@ class CircleFlusher {
 class FIFOBatchBufferPool {
  public:
   friend class CircleFlusher;
-  explicit FIFOBatchBufferPool(size_t pool_size, DiskManager *disk_manager);
+  explicit FIFOBatchBufferPool(size_t pool_size,
+                               DiskManager *disk_manager = nullptr);
 
   ~FIFOBatchBufferPool();
 
@@ -345,6 +346,9 @@ class FIFOBatchBufferPool {
 
   u64 Size();
   void Print();
+  u64 GetFileSize();
+  u64 GetReadCount();
+  u64 GetWriteCount();
 
  private:
   BufferPoolManager *read_buffer_;

@@ -190,8 +190,8 @@ TEST(BTreeCRUDTest1, 3_InsertDuplicated) {
   std::mt19937 g(1024);
   std::shuffle(keys.begin(), keys.end(), g);
 
-  for (const auto &key : keys) {
-    EXPECT_TRUE(btree->Insert(key, key));
+  for (size_t i = 0; i < key_nums; i++) {
+    EXPECT_TRUE(btree->Insert(keys[i], keys[i]));
   }
 
   btree->Draw(DOTFILE_NAME_BEFORE);

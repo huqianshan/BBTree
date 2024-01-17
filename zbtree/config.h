@@ -10,7 +10,7 @@
 #include <mutex>
 #include <utility>  //std::pair
 
-#define UNITTEST_
+// #define UNITTEST_
 #define READ_ONLY (true)
 #define WRITE_FLAG (false)
 // namespace BTree {
