@@ -517,7 +517,7 @@ void ParallelBufferPoolManager::Print() {
                                     0.6, 0.7, 0.8, 0.9, 0.999, 0.9999999};
   INFO_PRINT("  Percentile:")
   for (auto& p : percentiles) {
-    INFO_PRINT(" {%2.3lf%%->%4u}, ", p * 100, page_ids[size_t(p * sz)]);
+    INFO_PRINT(" {%2.3lf%%->%4lu}, ", p * 100, page_ids[size_t(p * sz)]);
   }
   INFO_PRINT("\n");
 

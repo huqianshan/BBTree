@@ -1,33 +1,59 @@
 #pragma once
 
+#include <immintrin.h>
+
 #include <atomic>
 #include <cassert>
 #include <chrono>  // NOLINT
 #include <cstdint>
 #include <iostream>
+#include <mutex>
 #include <utility>  //std::pair
 
+#define UNITTEST_
+#define READ_ONLY (true)
+#define WRITE_FLAG (false)
 // namespace BTree {
+using u8 = uint8_t;
 using u64 = uint64_t;
 using u32 = uint32_t;
 using i32 = int32_t;
 
-// typedef i32 txn_id_t;
-typedef u32 page_id_t;
+typedef u8 bytes_t;
+typedef u64 page_id_t;
+typedef u64 offset_t;
 typedef u64 KeyType;
 typedef u64 ValueType;
+typedef u64 zone_id_t;
+typedef u64 zone_offset_t;  // 16 bit for zone id, 48 bit for zone offset
 typedef std::pair<KeyType, ValueType> PairType;
 
-static constexpr u32 PAGE_SIZE = 4096;            // size of a data page in byte
+static constexpr u32 PAGE_SIZE = 4096;  // size of a data page in byte
+static constexpr u32 CIRCLE_FLUSHER_SIZE = 1024;
 static constexpr page_id_t INVALID_PAGE_ID = -1;  // invalid page id
-
-const KeyType MIN_KEY = std::numeric_limits<KeyType>::min();
-const ValueType INVALID_VALUE = std::numeric_limits<ValueType>::max();
-
 // config for buffer_btree
 // how many leaf nodes can be kept in memory
 const uint32_t max_leaf_count = 100;
 const uint32_t keep_leaf_count = 90;
+
+const KeyType MIN_KEY = std::numeric_limits<KeyType>::min();
+const ValueType INVALID_VALUE = std::numeric_limits<ValueType>::max();
+
+#define GET_ZONE_ID(pid_) ((pid_) >> 48)
+#define GET_ZONE_OFFSET(pid_) ((pid_) & 0x0000FFFFFFFFFFFF)
+#define MAKE_PAGE_ID(zone_id, zone_offset) \
+  (((zone_id) << 48) | ((zone_offset) & 0x0000FFFFFFFFFFFF))
+
+const u32 SPIN_LIMIT = 6;
+#define ATOMIC_SPIN_UNTIL(ptr, status)                    \
+  u32 atomic_step_ = 0;                                   \
+  while (ptr != status) {                                 \
+    auto limit = 1 << std::min(atomic_step_, SPIN_LIMIT); \
+    for (uint32_t v_ = 0; v_ < limit; v_++) {             \
+      _mm_pause();                                        \
+    };                                                    \
+    atomic_step_++;                                       \
+  }
 
 enum NodeType { INNERNODE = 0, LEAFNODE, ROOTNODE, INVALIDNODE };
 enum TreeOpType {
@@ -47,9 +73,63 @@ enum LatchMode {
   LATCH_MODE_NOP,     // not supported
 };
 
+enum PageStatus {
+  ACTIVE = 0,
+  EVICTED,
+  FLUSHED,
+};
+
 class Node;
 class InnerNode;
 class LeafNode;
+
+template <typename T>
+class CircleBuffer {
+  // https://github.com/cameron314/concurrentqueue
+ public:
+  CircleBuffer(u64 max_size)
+      : head_(0), tail_(0), size_(0), max_size_(max_size) {
+    buffer_ = new T[max_size_];
+  }
+  ~CircleBuffer() {}
+
+  bool Push(const T &item) {
+    u64 current_size = size_.load();
+    if (current_size == max_size_) {
+      return false;
+    }
+    buffer_[head_] = item;
+    u64 new_head = (head_ + 1) % max_size_;
+    head_.exchange(new_head);
+    size_.fetch_add(1);
+    return true;
+  }
+
+  bool Pop(T &item) {
+    u64 current_size = size_.load();
+    if (current_size == 0) {
+      return false;
+    }
+    item = buffer_[tail_];
+    u64 new_tail = (tail_ + 1) % max_size_;
+    tail_.exchange(new_tail);
+    size_.fetch_sub(1);
+    return true;
+  }
+
+  bool IsEmpty() { return size_.load() == 0; }
+
+  bool IsFull() { return size_.load() == max_size_; }
+
+  u64 Size() { return size_.load(); }
+
+ private:
+  const u64 max_size_;
+  T *buffer_;
+  std::atomic<u64> head_;
+  std::atomic<u64> tail_;
+  std::atomic<u64> size_;
+};
 
 // Macros to disable copying and moving
 #define DISALLOW_COPY(cname)     \

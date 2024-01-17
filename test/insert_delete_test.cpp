@@ -7,9 +7,26 @@
 #include <vector>
 
 #include "../zbtree/buffer.h"
+#include "../zbtree/wal.h"
 #include "../zbtree/zbtree.h"
 #include "common.h"
 // namespace BTree {
+
+TEST(WALTest1, 1_WAL) {
+  SingleWAL *wal = new SingleWAL(WAL_NAME.c_str());
+  std::string data = "hello world";
+  wal->Append((const bytes_t *)data.c_str(), data.size());
+  // wal->Flush();
+  delete wal;
+
+  WAL *wal2 = new WAL(WAL_NAME.c_str(), WAL_INSTANCE);
+  u64 times = 10000;
+  for (int i = 0; i < times; i++) {
+    std::string data = "hello world:" + std::to_string(i);
+    wal2->Append((const bytes_t *)data.c_str(), data.size());
+  }
+  delete wal2;
+}
 
 // Sequential insert
 TEST(BTreeCRUDTest1, 1_InsertSeq) {

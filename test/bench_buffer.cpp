@@ -279,12 +279,14 @@ void run_test(int num_thread, string load_data, string run_data,
   auto file_size = para->GetFileSize();
   auto read_count = para->GetReadCount();
   auto write_count = para->GetWriteCount();
+  auto wal_size = tree->wal_->Size();
 
   double page_read_avg = 1.0 * read_count * PAGE_SIZE / file_size;
   double page_write_avg = 1.0 * write_count * PAGE_SIZE / file_size;
   double bytes_read_avg = 1.0 * read_count * PAGE_SIZE / (LOAD_SIZE + RUN_SIZE);
   double bytes_write_avg =
       1.0 * write_count * PAGE_SIZE / (LOAD_SIZE + RUN_SIZE);
+  double wal_bytes_avg_write = 1.0 * wal_size / (LOAD_SIZE + RUN_SIZE);
   printf(
       "[Storage] Write_count=%8lu read_count=%8lu PAGES fielsize=%8lu PAGES "
       "PAGE= %4d Bytes\n",
@@ -295,6 +297,7 @@ void run_test(int num_thread, string load_data, string run_data,
       page_read_avg, page_write_avg);
   printf("[BTreeIndex]: Read amp: %6.2f bytes/op, Write amp: %6.2f bytes/op\n",
          bytes_read_avg, bytes_write_avg);
+  printf("[WriteAheadLog]:  Write amp: %6.2f bytes/op\n", wal_bytes_avg_write);
 }
 
 int main(int argc, char **argv) {
