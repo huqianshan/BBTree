@@ -512,7 +512,7 @@ void ParallelBufferPoolManager::Print() {
   }
   avg /= total;
   auto sz = total;
-  INFO_PRINT("[BufferPool] Avg Count For a BufferPage: %3lu  hits  ", avg);
+  INFO_PRINT("[ParaBufferPool]  Avg Count For a BufferPage: %3lu hits:", avg);
   std::vector<float> percentiles = {0.0, 0.1, 0.2, 0.3, 0.4,   0.5,
                                     0.6, 0.7, 0.8, 0.9, 0.999, 0.9999999};
   INFO_PRINT("  Percentile:")
@@ -521,13 +521,15 @@ void ParallelBufferPoolManager::Print() {
   }
   INFO_PRINT("\n");
 
-  INFO_PRINT(
-      "[ParaBufferPool] Instance Nums:%2lu Page table size:%4lu Replacer size: "
-      "%4lu Free list size: %4lu \n",
-      num_instances_, page_table_size, replacer_size, free_list_size);
+  INFO_PRINT("[ParaBufferPool] Total size: " KMAG "%4.2f" KRESET
+             " MB Instance Nums:%2lu Page table "
+             "size:%4lu Replacer size: %4lu Free list size: %4lu \n",
+             page_table_size * 4.0 / 1024, num_instances_, page_table_size,
+             replacer_size, free_list_size);
 
   double miss_ratio = miss * 100.0 / count;
   double hit_ratio = hit * 100.0 / count;
-  printf("BufferPool count:%4lu miss: %4lu %2.2lf%% hit: %4lu %2.2lf%%\n",
+  printf("[ParaBufferPool] count:%4lu miss: %4lu %2.2lf%% hit: %4lu " KCYN
+         "%2.2lf%%" KRESET "\n",
          count, miss, miss_ratio, hit, hit_ratio);
 }

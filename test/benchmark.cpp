@@ -23,10 +23,29 @@ using namespace btreeolc;
 using namespace std;
 
 const u64 MILLION = 1000 * 1000;
-const std::string TREE_NAME = "BTreeBufferOnExt4SSD";
+
+/**
+ * Test parameters
+ */
 // #define LATENCY
-// #define PM_PCM
 #define DRAM_CONSUMPTION
+// #define GDB
+
+/**
+ * Tree index
+ *
+ */
+// #define RAW_BTREE_ON_FS
+#define BATCH_BTREE_ON_FS
+// #define BTREE_ON_ZNS
+#ifdef RAW_BTREE_ON_FS
+const std::string TREE_NAME = "BTreeBufferOnExt4SSD";
+#elif defined(BATCH_BTREE_ON_FS)
+#include "../zbtree/buffer_btree.h"
+const std::string TREE_NAME = "BatchTreeBufferOnExt4SSD";
+#elif defined(BTREE_ON_ZNS) c
+const std::string TREE_NAME = "BTreeOnZNS";
+#endif
 
 enum OP { OP_INSERT, OP_READ, OP_DELETE, OP_UPDATE, OP_SCAN };
 
@@ -118,7 +137,7 @@ void run_test(int num_thread, string load_data, string run_data,
   }
   LOAD_SIZE = count;
   infile_load.close();
-  fprintf(stdout, "Loaded %8lu keys for initialing.\n", LOAD_SIZE);
+  printf("Loaded %8lu keys for initialing.\n", LOAD_SIZE);
 
   ifstream infile_run(run_data);
   count = 0;
@@ -147,7 +166,7 @@ void run_test(int num_thread, string load_data, string run_data,
   }
   RUN_SIZE = count;
 
-  fprintf(stdout, "Loaded %8lu keys for running.\n", RUN_SIZE);
+  printf("Loaded %8lu keys for running.\n", RUN_SIZE);
 #ifdef DRAM_CONSUMPTION
   //   test();
   //   int ret = system((dram_shell + process_name).c_str());
@@ -156,13 +175,25 @@ void run_test(int num_thread, string load_data, string run_data,
   Timer tr;
   tr.start();
 
+#ifdef RAW_BTREE_ON_FS
   // DiskManager *disk = new DiskManager(FILE_NAME.c_str());
   ParallelBufferPoolManager *para = new ParallelBufferPoolManager(
       INSTANCE_SIZE, PAGES_SIZE, FILE_NAME, false);
-  // BTree::BTree *tree = new BTree::BTree(para);
   btreeolc::BTree *tree = new btreeolc::BTree(para);
+#elif defined(BATCH_BTREE_ON_FS)
+  ParallelBufferPoolManager *para = new ParallelBufferPoolManager(
+      INSTANCE_SIZE, PAGES_SIZE, FILE_NAME, false);
+  std::shared_ptr<btreeolc::BTree> device_tree =
+      std::make_shared<btreeolc::BTree>(para);
+  std::shared_ptr<btreeolc::BufferBTree<KeyType, ValueType> > tree(
+      new btreeolc::BufferBTree<KeyType, ValueType>(device_tree));
+#elif defined(BTREE_ON_ZNS)
+  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
+  FIFOBatchBufferPool *para = new FIFOBatchBufferPool(PAGES_SIZE, disk);
+  btreeolc::BTree *tree = new btreeolc::BTree(para);
+#endif
 
-  printf("Tree init: %s %4.2f ms.\n", TREE_NAME.c_str(),
+  printf("Tree init:" KWHT " %s" KRESET " %4.2f ms.\n", TREE_NAME.c_str(),
          tr.elapsed<std::chrono::milliseconds>());
 
   auto part = LOAD_SIZE / num_thread;
@@ -187,7 +218,8 @@ void run_test(int num_thread, string load_data, string run_data,
       ths[i].join();
     }
     auto t = sw.elapsed<std::chrono::milliseconds>();
-    printf("Throughput: load, %3.3f Kops/s\n", (LOAD_SIZE * 1.0) / (t));
+    printf("Throughput: load, " KGRN "%3.3f" KRESET " Kops/s\n",
+           (LOAD_SIZE * 1.0) / (t));
     printf("Load time: %4.4f sec\n", t / 1000.0);
   }
   part = RUN_SIZE / num_thread;
@@ -239,9 +271,13 @@ void run_test(int num_thread, string load_data, string run_data,
   for (size_t i = 0; i < num_thread; i++) {
     ths[i].join();
   }
+#ifdef BATCH_BTREE_ON_FS
+  tree->flush_all();
+#endif
   auto t = sw.elapsed<std::chrono::milliseconds>();
 
-  printf("Throughput: run, %f Kops/s\n", (RUN_SIZE * 1.0) / (t));
+  printf("Throughput: run, " KRED "%f" KRESET " Kops/s\n",
+         (RUN_SIZE * 1.0) / (t));
   printf("Run time: %4.4f sec\n", t / 1000.0);
 
 #ifdef LATENCY
@@ -273,8 +309,15 @@ void run_test(int num_thread, string load_data, string run_data,
   auto file_size = para->GetFileSize();
   auto read_count = para->GetReadCount();
   auto write_count = para->GetWriteCount();
+#ifdef BATCH_BTREE_ON_FS
+  auto wal_size = tree->wal_->Size();
+  double wal_bytes_avg_write = 1.0 * wal_size / (LOAD_SIZE + RUN_SIZE);
+  printf("[WriteAheadLog]:  Write amp: %6.2f bytes/op\n", wal_bytes_avg_write);
+#endif
 
+#ifndef BATCH_BTREE_ON_FS
   delete tree;
+#endif
 
   double page_read_avg = 1.0 * read_count * PAGE_SIZE / file_size;
   double page_write_avg = 1.0 * write_count * PAGE_SIZE / file_size;
@@ -289,20 +332,31 @@ void run_test(int num_thread, string load_data, string run_data,
       "[BufferPool]: In-place read in a page: %6.2f, In-place write in a page: "
       "%6.2f\n",
       page_read_avg, page_write_avg);
-  printf("[BTreeIndex]: Read amp: %6.2f bytes/op, Write amp: %6.2f bytes/op\n",
+  printf("[BTreeIndex]: Read amp: " KBLU "%6.2f" KRESET
+         " bytes/op, Write amp: " KYEL "%6.2f" KRESET " bytes/op\n",
          bytes_read_avg, bytes_write_avg);
 }
 
 int main(int argc, char **argv) {
+#ifndef GDB
   if (argc != 4) {
     printf("Usage: %s <workload> <threads> <size>\n", argv[0]);
     exit(0);
   };
+#endif
 
   printf("Test Begin\n");
-  printf("workload: %s, threads: %s\n", argv[1], argv[2]);
 
+#ifndef GDB
   string workload = argv[1];
+  printf(KNRM "workload: " KWHT "%s" KRESET ", threads: " KWHT "%s" KRESET "\n",
+         argv[1], argv[2]);
+#else
+  string workload = "ycsba";
+  int num_thread = 1;
+  int GDB_SIZE = 1;
+  printf("workload: %s, threads: %2d\n", workload.c_str(), num_thread);
+#endif
   string load_data = "";
   string run_data = "";
   if (workload.find("ycsb") != string::npos) {
@@ -315,20 +369,25 @@ int main(int argc, char **argv) {
     return 0;
   }
 
+#ifndef GDB
   int num_thread = atoi(argv[2]);
   u64 max_load_size = MILLION * atoi(argv[3]);
   u64 max_run_size = MILLION * atoi(argv[3]);
+#else
+  u64 max_load_size = MILLION * GDB_SIZE;
+  u64 max_run_size = MILLION * GDB_SIZE;
+#endif
 
   remove(FILE_NAME.c_str());
-
+#ifndef GDB
   auto read_reg_before = 0, written_reg_before = 0;
   std::tie(read_reg_before, written_reg_before) = getDataUnits(REGURLAR_DEVICE);
   auto read_zone_before = 0, written_zone_before = 0;
   std::tie(read_zone_before, written_zone_before) = getDataUnits(ZNS_DEVICE);
-
+#endif
   run_test(num_thread, load_data, run_data, workload, max_load_size,
            max_run_size);
-
+#ifndef GDB
   auto read_reg = 0, written_reg = 0;
   std::tie(read_reg, written_reg) = getDataUnits(REGURLAR_DEVICE);
   auto read_zone = 0, written_zone = 0;
@@ -353,12 +412,13 @@ int main(int argc, char **argv) {
   auto read_amplification_zone =
       read_total_zone * 1.0 * UNITS_SIZE / (LOAD_SIZE + RUN_SIZE);
 
-  printf("[Reg] Read amp: %6.2f bytes/op, Write amp: %6.2f bytes/op \n",
+  printf("[Reg] Read amp:" KBLU " %6.2f" KRESET " bytes/op, Write amp: " KYEL
+         "%6.2f " KRESET "bytes/op \n",
          read_amplification_reg, write_amplification_reg);
-  printf("[Zone] Read amp: %6.2f bytes/op, Write amp: %6.2f bytes/op \n",
+  printf("[Zone] Read amp: " KBLU "%6.2f" KRESET " bytes/op, Write amp: " KYEL
+         "%6.2f " KRESET "bytes/op \n",
          read_amplification_zone, write_amplification_zone);
-  printf("Load size: %lu, Run size: %lu\n", LOAD_SIZE, RUN_SIZE);
-
+#endif
   printf("Test End\n");
   return 0;
 }

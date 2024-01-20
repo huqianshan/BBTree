@@ -131,6 +131,18 @@ class CircleBuffer {
   std::atomic<u64> size_;
 };
 
+#define KNRM "\x1B[0m"
+#define KBOLD "\x1B[1m"
+#define KRED "\x1B[31m"
+#define KGRN "\x1B[32m"
+#define KYEL "\x1B[33m"
+#define KBLU "\x1B[34m"
+#define KMAG "\x1B[35m"
+#define KCYN "\x1B[36m"
+#define KWHT "\x1B[37m"
+#define KRESET "\033[0m"
+#define STR(X) #X
+
 // Macros to disable copying and moving
 #define DISALLOW_COPY(cname)     \
   cname(const cname &) = delete; \
@@ -160,17 +172,6 @@ class CircleBuffer {
 #define FATAL_PRINT(fmt, args...)
 
 #else
-
-#define KNRM "\x1B[0m"
-#define KRED "\x1B[31m"
-#define KGRN "\x1B[32m"
-#define KYEL "\x1B[33m"
-#define KBLU "\x1B[34m"
-#define KMAG "\x1B[35m"
-#define KCYN "\x1B[36m"
-#define KWHT "\x1B[37m"
-#define KRESET "\033[0m"
-#define STR(X) #X
 
 #define INFO_PRINT(fmt, args...) \
   fprintf(stdout, fmt, ##args);  \
