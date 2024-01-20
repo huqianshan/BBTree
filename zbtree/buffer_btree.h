@@ -15,6 +15,8 @@
 #include <thread>
 #include <unordered_set>
 
+#include "../test/common.h"
+#include "wal.h"
 #include "zbtree.h"
 
 // #define DEBUG_BUFFER
@@ -652,14 +654,18 @@ struct BufferBTree {
   BufferBTreeImp<Key, Value> *volatile current;
   std::shared_mutex mtx;
   std::shared_ptr<BTree> device_tree;
+  WAL *wal_;
 
   BufferBTree(std::shared_ptr<BTree> device_tree) : device_tree(device_tree) {
     current = new BufferBTreeImp<Key, Value>(device_tree);
+    wal_ = new WAL(WAL_NAME.c_str(), WAL_INSTANCE);
   }
 
   void Insert(Key k, Value v) {
   restart_insert:
     std::shared_lock<std::shared_mutex> share_lock(mtx);
+
+    wal_->Append(k, v);
 
     if (current->full) {
       share_lock.unlock();
@@ -722,6 +728,7 @@ struct BufferBTree {
   void flush_all() {
     std::unique_lock<std::shared_mutex> u_lock(mtx);
     current->flush_all();
+    wal_->FlushAll();
     // std::shared_ptr<BufferBTreeImp<Key, Value>> old(current);
     // current = nullptr;
     // current = new BufferBTreeImp<Key, Value>(device_tree);
@@ -729,6 +736,7 @@ struct BufferBTree {
   ~BufferBTree() {
     flush_all();
     current->GetNodeNums();
+    delete wal_;
     delete current;
     current = nullptr;
   }
