@@ -95,15 +95,21 @@ struct BTreeLeaf : public BTreeLeafBase {
   };
 
   static const uint64_t maxEntries =
-      (pageSize - sizeof(NodeBase)) / (sizeof(Key) + sizeof(Payload));
+          // pageSize / (sizeof(Key) + sizeof(Payload));
+      (pageSize) / (sizeof(Key) + sizeof(Payload));
 
-  Key keys[maxEntries];
-  Payload payloads[maxEntries];
+  // Key keys[maxEntries];
+  // Payload payloads[maxEntries];
+  // use pointer instead of array
+  Key* keys;
+  Payload* payloads;
 
   BTreeLeaf() {
     count = 0;
     type = typeMarker;
     access_count = 0;
+    keys = nullptr;
+    payloads = nullptr;
   }
 
   bool isFull() { return count == maxEntries; };
@@ -124,21 +130,21 @@ struct BTreeLeaf : public BTreeLeafBase {
     return lower;
   }
 
-  unsigned lowerBoundBF(Key k) {
-    auto base = keys;
-    unsigned n = count;
-    while (n > 1) {
-      const unsigned half = n / 2;
-      base = (base[half] < k) ? (base + half) : base;
-      n -= half;
-    }
-    return (*base < k) + base - keys;
-  }
+  // unsigned lowerBoundBF(Key k) {
+  //   auto base = keys;
+  //   unsigned n = count;
+  //   while (n > 1) {
+  //     const unsigned half = n / 2;
+  //     base = (base[half] < k) ? (base + half) : base;
+  //     n -= half;
+  //   }
+  //   return (*base < k) + base - keys;
+  // }
 
   void insert(Key k, Payload p) {
     assert(count < maxEntries);
     if (access_count < std::numeric_limits<uint32_t>::max()) access_count++;
-    if (count) {
+    if (count > 0) {
       unsigned pos = lowerBound(k);
       if ((pos < count) && (keys[pos] == k)) {
         // Upsert
@@ -151,21 +157,41 @@ struct BTreeLeaf : public BTreeLeafBase {
       keys[pos] = k;
       payloads[pos] = p;
     } else {
+      if(keys == nullptr)
+      {
+        keys = new Key[maxEntries];
+        payloads = new Payload[maxEntries];
+        count = 0;
+      }
       keys[0] = k;
       payloads[0] = p;
     }
     count++;
   }
 
+  void deleteNode() {
+    delete[] keys;
+    delete[] payloads;
+    keys = nullptr;
+    payloads = nullptr;
+    count = 0;
+    access_count = 0;
+  }
+
   BTreeLeaf *split(Key &sep) {
     BTreeLeaf *newLeaf = new BTreeLeaf();
     newLeaf->count = count - (count / 2);
+    newLeaf->keys = new Key[maxEntries];
+    newLeaf->payloads = new Payload[maxEntries];
     count = count - newLeaf->count;
     memcpy(newLeaf->keys, keys + count, sizeof(Key) * newLeaf->count);
     memcpy(newLeaf->payloads, payloads + count,
            sizeof(Payload) * newLeaf->count);
     sep = keys[count - 1];
     return newLeaf;
+  }
+  ~BTreeLeaf() {
+    deleteNode();
   }
 };
 
@@ -238,7 +264,7 @@ struct BTreeInner : public BTreeInnerBase {
     count++;
   }
   ~BTreeInner() {
-    for (int i = 0; i < count; i++) {
+    for (int i = 0; i <= count; i++) {
       delete children[i];
     }
   }
@@ -247,7 +273,7 @@ struct BTreeInner : public BTreeInnerBase {
 template <class Key, class Value>
 struct BufferBTreeImp {
   std::atomic<NodeBase *> root;
-  std::atomic<uint64_t> leaf_count;
+  std::atomic<int16_t> leaf_count;
   std::atomic<bool> full;
   std::shared_ptr<BTree> device_tree;
   using leaf_type = BTreeLeaf<Key, Value>;
@@ -256,7 +282,7 @@ struct BufferBTreeImp {
   explicit BufferBTreeImp(std::shared_ptr<BTree> device_tree)
       : device_tree(device_tree) {
     root = new BTreeLeaf<Key, Value>();
-    leaf_count = 0;
+    leaf_count.store(0);
     full = false;
   }
 
@@ -359,6 +385,8 @@ struct BufferBTreeImp {
       // Split
       Key sep;
       BTreeLeaf<Key, Value> *newLeaf = leaf->split(sep);
+      leaf_count.fetch_add(1);
+      // printf("leaf count: %hd\n", leaf_count.load());
       if (parent)
         parent->insert(sep, newLeaf);
       else
@@ -378,17 +406,15 @@ struct BufferBTreeImp {
           goto restart;
         }
       }
-      if (leaf->count == 0) {
-        leaf_count++;
+      if (leaf->keys == nullptr) {
+        leaf_count.fetch_add(1);
+        // printf("triger nullptr insert\n");
       }
       leaf->insert(k, v);
       node->writeUnlock();
-      // return; // success
-      // not return cause we need to check leaf count
-      // and if leaf count is too large, we need to flush it
     }
 
-    if (leaf_count > max_leaf_count) {
+    if (leaf_count.load() >= max_leaf_count) {
       full = true;
     }
   }
@@ -414,7 +440,8 @@ struct BufferBTreeImp {
       }
     }
     delete_nodes(flush_leaf);
-    return keep_leaf;
+    full = false;
+    return {};
   }
 
   void flush_all() {
@@ -422,18 +449,21 @@ struct BufferBTreeImp {
       if (node == nullptr) return;
       if (node->type == PageType::BTreeInner) {
         inner_type *inner = (inner_type *)node;
-        for (int i = 0; i < inner->count; i++) {
+        for (int i = 0; i <= inner->count; i++) {
           dfs(inner->children[i]);
         }
       } else {
         leaf_type *leaf = (leaf_type *)node;
+        if(leaf->keys == nullptr)
+        {
+          assert(leaf->count == 0);
+          return ;
+        }
         // todo
-        // flash leaf at once
+        // flush leaf at once
         for (int i = 0; i < leaf->count; i++) {
           device_tree->Insert(leaf->keys[i], leaf->payloads[i]);
         }
-        // leaf->count = 0;
-        // leaf->access_count = 0;
         delete_node(leaf);
       }
     };
@@ -443,6 +473,7 @@ struct BufferBTreeImp {
   void GetNodeNums() const {
     u64 innerNodeCount = 0;
     u64 leafNodeCount = 0;
+    u64 emptyLeafNodeCount = 0;
     double avgInnerNodeKeys = 0;
     double avgLeafNodeKeys = 0;
     u32 height = 0;
@@ -464,6 +495,7 @@ struct BufferBTreeImp {
 
       if (node->type == PageType::BTreeLeaf) {
         leaf_type *leafNode = reinterpret_cast<leaf_type *>(node);
+        emptyLeafNodeCount += (leafNode->keys == nullptr ? 1 : 0);
         leafNodeCount++;
         avgLeafNodeKeys += leafNode->count;
       } else {
@@ -486,10 +518,11 @@ struct BufferBTreeImp {
       avgLeafNodeKeys /= leafNodeCount;
     }
     INFO_PRINT(
-        "[BufferTree] Tree Height: %2u InnerNodeCount: %4lu LeafNodeCount: "
-        "%6lu "
+        "[BufferTree] Tree Height: %2u InnerNodeCount: %4lu LeafNodeCount: %6lu "
+        "EmptyLeafNodeCount: %6lu ValidLeafNodeCount: %6hd "
         "Avg Inner Node pairs: %3.1lf Avg Leaf Node pairs %3.1lf\n",
-        height, innerNodeCount, leafNodeCount, avgInnerNodeKeys,
+        height, innerNodeCount, leafNodeCount ,emptyLeafNodeCount, leaf_count.load(),
+        avgInnerNodeKeys,
         avgLeafNodeKeys);
   }
 
@@ -511,7 +544,7 @@ struct BufferBTreeImp {
     if (node == nullptr) return;
     if (node->type == PageType::BTreeInner) {
       inner_type *inner = (inner_type *)node;
-      for (int i = 0; i < inner->count; i++) {
+      for (int i = 0; i <= inner->count; i++) {
         traverse(inner->children[i], pq, another);
       }
     } else {
@@ -533,9 +566,11 @@ struct BufferBTreeImp {
     }
   }
   void delete_node(leaf_type *leaf) {
-    leaf->count = 0;
-    leaf->access_count = 0;
-    leaf_count--;
+    if(leaf->keys == nullptr) return;
+    leaf_count.fetch_sub(1);
+    // printf("leaf count: %hd\n", leaf_count.load());
+    assert(leaf_count.load() >= 0);
+    leaf->deleteNode();
   }
 
  public:
@@ -572,6 +607,7 @@ struct BufferBTreeImp {
     }
 
     BTreeLeaf<Key, Value> *leaf = static_cast<BTreeLeaf<Key, Value> *>(node);
+    if(leaf->count == 0) return false;
     unsigned pos = leaf->lowerBound(k);
     bool success;
     if ((pos < leaf->count) && (leaf->keys[pos] == k)) {
@@ -662,36 +698,19 @@ struct BufferBTree {
   }
 
   void Insert(Key k, Value v) {
+    wal_->Append(k, v);
   restart_insert:
     std::shared_lock<std::shared_mutex> share_lock(mtx);
-
-    wal_->Append(k, v);
 
     if (current->full) {
       share_lock.unlock();
       std::unique_lock<std::shared_mutex> u_lock(mtx);
       if (current->full) {
         // rebuild the tree base on keep_leaf and we restart insert
+        // INFO_PRINT("flush all when leaf_count== %lu\n", current->leaf_count.load());
+        // cerr << current->leaf_count.load() << endl;
         auto keep_leaf = std::move(current->flush());
         current->full = false;
-#ifdef DEBUG_BUFFER
-        std::cerr << "triger flush" << std::endl;
-        int leaf_cnt = 0;
-        for (auto leaf : keep_leaf) {
-          printf("leaf: %d, count: %d, access count %d\n", leaf_cnt++,
-                 leaf->count, leaf->access_count);
-        }
-#endif
-        // std::unique_ptr<BufferBTreeImp<Key, Value>> old_tree(current);
-        // current = nullptr;
-        // current = new BufferBTreeImp<Key, Value>(device_tree);
-        // for(auto leaf : keep_leaf)
-        // {
-        //     for(int i = 0; i < leaf->count; i++)
-        //     {
-        //         current->insert(leaf->keys[i], leaf->payloads[i]);
-        //     }
-        // }
       }
       u_lock.unlock();
       goto restart_insert;
@@ -718,6 +737,7 @@ struct BufferBTree {
     if (current->full) {
       share_lock.unlock();
       yield();
+      goto restart_scan;
     } else {
       return current->scan(k, range, output);
     }
@@ -727,11 +747,8 @@ struct BufferBTree {
 
   void flush_all() {
     std::unique_lock<std::shared_mutex> u_lock(mtx);
-    current->flush_all();
     wal_->FlushAll();
-    // std::shared_ptr<BufferBTreeImp<Key, Value>> old(current);
-    // current = nullptr;
-    // current = new BufferBTreeImp<Key, Value>(device_tree);
+    current->flush_all();
   }
   ~BufferBTree() {
     flush_all();
