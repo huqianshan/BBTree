@@ -43,3 +43,6 @@
 **/*.csv
 **/*.dat
 **/*.data
+
+**/rocksdb_benchmark
+rocksdb/
