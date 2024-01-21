@@ -32,6 +32,14 @@ target_link_libraries(btree-olc
         pthread
         zbd)
 
+# add_executable(rocksdb_zen benchmark.cpp ${ZBTREE_CPPS} ${ZNS_CPPS} ${ROCKSDB_LIB})
+# target_link_libraries(rocksdb_zen
+#         jemalloc
+#         pthread
+#         zbd
+#         ${ROCKSDB_LIB})
+        
+
 
 add_executable(zns_test ztest.cpp ${ZNS_CPPS} )
 target_link_libraries(zns_test

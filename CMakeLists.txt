@@ -16,6 +16,16 @@ else()
   message(STATUS "Build type is set to ${CMAKE_BUILD_TYPE}")
 endif()
 
+include(FetchContent)
+FetchContent_Declare(
+  zenfs
+  # Specify the commit you depend on and update it regularly.
+  URL https://github.com/westerndigitalcorporation/zenfs/archive/refs/tags/v2.1.4.zip
+)
+# For Windows: Prevent overriding the parent project's compiler/linker settings
+# set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(zenfs)
+
 ##
 ## compiler flags
 ##

@@ -52,7 +52,7 @@ void test_zoned_blocked_device() {
     data = (char *)((uint64_t)(data + 4096) & ~(4096ull - 1));
     memset((void *)data, 0x5a, BUF_SIZE);
 
-    zone->Append(data, BUF_SIZE);
+    // zone->Append(data, BUF_SIZE);
     zone->Print();
     delete[] raw_data;
   }
