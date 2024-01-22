@@ -36,7 +36,6 @@ class DiskManager {
 
   std::atomic_uint64_t write_count_;
   std::atomic_uint64_t read_count_;
-
   void write_n_pages(page_id_t page_id, size_t nr_pages, const char *page_data);
 
   void read_n_pages(page_id_t page_id, size_t nr_pages, char *page_data);

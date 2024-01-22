@@ -200,7 +200,9 @@ class ParallelBufferPoolManager {
    * page id
    */
   BufferPoolManager *GetBufferPoolManager(page_id_t page_id);
-
+  DiskManager *GetDiskManager(page_id_t page_id);
+  // allocate a new page_id
+  DiskManager *GetDiskManager(page_id_t *page_id);
   /**
    * Fetch the requested page from the buffer pool.
    * @param page_id id of page to be fetched
@@ -257,25 +259,44 @@ class ParallelBufferPoolManager {
   DiskManager *disk_manager_;
 };
 
+// #define NO_BUFFER_POOL
+
 class NodeRAII {
  public:
   NodeRAII(ParallelBufferPoolManager *buffer_pool_manager, page_id_t page_id)
       : buffer_pool_manager_(buffer_pool_manager), page_id_(page_id) {
+    page_ = nullptr;
+    dirty_ = false;
+#ifdef NO_BUFFER_POOL
+    disk_manager_ = buffer_pool_manager_->GetDiskManager(page_id_);
+    node_ = (char *)aligned_alloc(PAGE_SIZE, PAGE_SIZE);
+    disk_manager_->read_page(page_id_, node_);
+#else
     page_ = buffer_pool_manager_->FetchPage(page_id_);
     CheckAndInitPage();
+#endif
     // DEBUG_PRINT("raii fetch\n");
   }
 
   NodeRAII(ParallelBufferPoolManager *buffer_pool_manager, page_id_t *page_id)
       : buffer_pool_manager_(buffer_pool_manager) {
+    page_ = nullptr;
+#ifdef NO_BUFFER_POOL
+    disk_manager_ = buffer_pool_manager_->GetDiskManager(&page_id_);
+    node_ = (char *)aligned_alloc(PAGE_SIZE, PAGE_SIZE);
+    // disk_manager_->read_page(page_id_, (char *)node_);
+    memset(node_, 0x00, PAGE_SIZE);
+    dirty_ = true;
+#else
     page_ = buffer_pool_manager_->NewPage(&page_id_);
     CheckAndInitPage();
+#endif
     *page_id = page_id_;
   }
 
   void CheckAndInitPage() {
     if (page_ != nullptr) {
-      node_ = reinterpret_cast<void *>(page_->GetData());
+      node_ = reinterpret_cast<char *>(page_->GetData());
     } else {
       std::cout << "allocte error, out of memory for buffer pool" << std::endl;
       exit(-1);
@@ -284,10 +305,19 @@ class NodeRAII {
   }
 
   ~NodeRAII() {
+#ifdef NO_BUFFER_POOL
+    if (node_ != nullptr) {
+      if (dirty_) {
+        disk_manager_->write_page(page_id_, reinterpret_cast<char *>(node_));
+      }
+      free(node_);
+    }
+#else
     if (page_ != nullptr) {
       buffer_pool_manager_->UnpinPage(page_id_, dirty_);
       // DEBUG_PRINT("raii unpin\n");
     }
+#endif
   }
 
   void *GetNode() { return node_; }
@@ -304,8 +334,9 @@ class NodeRAII {
 
  private:
   ParallelBufferPoolManager *buffer_pool_manager_;
+  DiskManager *disk_manager_;
   page_id_t page_id_;
   Page *page_ = nullptr;
-  void *node_ = nullptr;
+  char *node_ = nullptr;
   bool dirty_;
 };

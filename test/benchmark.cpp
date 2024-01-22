@@ -329,7 +329,7 @@ void run_test(int num_thread, string load_data, string run_data,
       "PAGE= %4d Bytes\n",
       write_count, read_count, file_size / PAGE_SIZE, PAGE_SIZE);
   printf(
-      "[BufferPool]: In-place read in a page: %6.2f, In-place write in a page: "
+      "[BTreeIndex]: In-place read in a page: %6.2f, In-place write in a page: "
       "%6.2f\n",
       page_read_avg, page_write_avg);
   printf("[BTreeIndex]: Read amp: " KBLU "%6.2f" KRESET
