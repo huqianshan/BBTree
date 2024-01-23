@@ -415,6 +415,12 @@ BufferPoolManager* ParallelBufferPoolManager::GetBufferPoolManager(
   return bpmis_[page_id % num_instances_];
 }
 
+DiskManager* ParallelBufferPoolManager::GetDiskManager(page_id_t page_id) {
+  // Get BufferPoolManager responsible for handling given page id. You can use
+  // this method in your other methods.
+  return bpmis_[page_id % num_instances_]->disk_manager_;
+}
+
 Page* ParallelBufferPoolManager::FetchPage(page_id_t page_id) {
   // Fetch page for page_id from responsible BufferPoolManager
   return dynamic_cast<BufferPoolManager*>(GetBufferPoolManager(page_id))
@@ -458,6 +464,25 @@ Page* ParallelBufferPoolManager::NewPage(page_id_t* page_id) {
     }
   }
   return ret_page;
+}
+
+DiskManager* ParallelBufferPoolManager::GetDiskManager(page_id_t* page_id) {
+  size_t start_index = index_;
+  size_t loop_index = index_;
+  index_ = (index_ + 1) % num_instances_;
+  DiskManager* ret = nullptr;
+  while (true) {
+    ret = bpmis_[loop_index]->disk_manager_;
+    *page_id = bpmis_[loop_index]->AllocatePage();
+    if (ret != nullptr) {
+      return ret;
+    }
+    loop_index = (loop_index + 1) % num_instances_;
+    if (loop_index == start_index) {
+      return nullptr;
+    }
+  }
+  return ret;
 }
 
 bool ParallelBufferPoolManager::DeletePage(page_id_t page_id) {
