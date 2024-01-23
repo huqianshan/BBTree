@@ -424,9 +424,15 @@ struct BufferBTreeImp {
       return lhs->access_count < rhs->access_count;
     }
   };
+  struct LeafCompareGreater {
+    bool operator()(const leaf_type *lhs, const leaf_type *rhs) const {
+      return lhs->access_count > rhs->access_count;
+    }
+  };
   // max heap
   using vec_type = std::vector<leaf_type *>;
   using pq_type = std::priority_queue<leaf_type *, vec_type, LeafCompare>;
+  uint64_t flush_time = 0;
   vec_type flush() {
     std::pair<vec_type, vec_type> ret = distinguish_leaves(root);
     vec_type flush_leaf = std::move(ret.first);
@@ -434,11 +440,14 @@ struct BufferBTreeImp {
     vec_type keep_leaf = std::move(ret.second);
     // todo
     // merge insert leaf operation
+    auto start = bench_start();
     for (auto leaf : flush_leaf) {
       for (int i = 0; i < leaf->count; i++) {
         device_tree->Insert(leaf->keys[i], leaf->payloads[i]);
       }
     }
+    auto end = bench_end();
+    flush_time += end - start;
     delete_nodes(flush_leaf);
     full = false;
     return {};
@@ -526,20 +535,41 @@ struct BufferBTreeImp {
         avgLeafNodeKeys);
   }
 
+  uint64_t time_elapsed = 0;
+  uint64_t flush_cnt = 0;
  private:
   // return flush_leaf and keep_leaf
   // now we keep keep_leaf empty because we only delete flush_leaf
   std::pair<vec_type, vec_type> distinguish_leaves(NodeBase *node) {
+    flush_cnt++;
     pq_type pq;
     vec_type another;
+#ifdef TRAVERSE_GREATER
+    auto start = bench_start();
+    traverse_greater(node, pq, another);
+    while(!pq.empty()) {
+      // keep_leaf.push_back(pq.top());
+      pq.top()->access_count /= 2;
+      pq.pop();
+    }
+    auto end = bench_end();
+    time_elapsed += end - start;
+    return std::make_pair(std::move(another), vec_type{});
+#else
+    auto start = bench_start();
     traverse(node, pq, another);
     vec_type flush_leaf;
     while (!pq.empty()) {
       flush_leaf.push_back(pq.top());
       pq.pop();
     }
-    return std::make_pair(std::move(flush_leaf), std::move(another));
+    auto end = bench_end();
+    time_elapsed += end - start;
+    return std::make_pair(std::move(flush_leaf), vec_type{});
+#endif
   }
+  // using max-heap with size of (max_leaf_count - keep_leaf_count)
+  // which means time O(nlogn) is smaller
   void traverse(NodeBase *node, pq_type &pq /*flush*/, vec_type &another) {
     if (node == nullptr) return;
     if (node->type == PageType::BTreeInner) {
@@ -551,10 +581,28 @@ struct BufferBTreeImp {
       leaf_type *leaf = (leaf_type *)node;
       pq.push(leaf);
       if (pq.size() > max_leaf_count - keep_leaf_count) {
-        // another.push_back(pq.top());
         auto top = pq.top();
-        // half leaf access count to avoid starvation
         top->access_count /= 2;
+        pq.pop();
+      }
+    }
+  }
+  // using min-heap with size of keep_leaf_count
+  // which means time O(nlogk) is smaller
+  // and now we have not half access count
+  void traverse_greater(NodeBase *node, pq_type &pq /*keep*/, vec_type &another) {
+    if (node == nullptr) return;
+    if (node->type == PageType::BTreeInner) {
+      inner_type *inner = (inner_type *)node;
+      for (int i = 0; i <= inner->count; i++) {
+        traverse_greater(inner->children[i], pq, another);
+      }
+    } else {
+      leaf_type *leaf = (leaf_type *)node;
+      pq.push(leaf);
+      if (pq.size() > keep_leaf_count) {
+        another.push_back(pq.top());
+        auto top = pq.top();
         pq.pop();
       }
     }
@@ -753,6 +801,14 @@ struct BufferBTree {
   ~BufferBTree() {
     flush_all();
     current->GetNodeNums();
+    INFO_PRINT("time elapsed: %fs in total, %favg, flush %ld\n",
+      cycles_to_sec(current->time_elapsed),
+      cycles_to_sec(current->time_elapsed) / current->flush_cnt,
+      current->flush_cnt);
+    INFO_PRINT("flush time elapsed: %fs in total, %favg, flush %ld\n",
+      cycles_to_sec(current->flush_time),
+      cycles_to_sec(current->flush_time) / current->flush_cnt,
+      current->flush_cnt);
     delete wal_;
     delete current;
     current = nullptr;
