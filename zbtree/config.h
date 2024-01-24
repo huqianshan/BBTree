@@ -34,9 +34,11 @@ static constexpr u32 CIRCLE_FLUSHER_SIZE = 1024;
 static constexpr page_id_t INVALID_PAGE_ID = -1;  // invalid page id
 // config for buffer_btree
 // how many leaf nodes can be kept in memory
-constexpr int32_t max_leaf_count = 100;
-constexpr int32_t keep_leaf_count = 10;
-#define TRAVERSE_GREATER
+constexpr int32_t MAX_BUFFER_LEAF_MB = 10;
+constexpr int32_t MAX_KEEP_LEAF_MB = 1;
+constexpr int32_t max_leaf_count = MAX_BUFFER_LEAF_MB * 1024 / 4;
+constexpr int32_t keep_leaf_count = MAX_KEEP_LEAF_MB * 1024 / 4;
+// #define TRAVERSE_GREATER
 
 const KeyType MIN_KEY = std::numeric_limits<KeyType>::min();
 const ValueType INVALID_VALUE = std::numeric_limits<ValueType>::max();

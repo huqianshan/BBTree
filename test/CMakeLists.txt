@@ -32,15 +32,15 @@ target_link_libraries(btree-olc
         pthread
         zbd)
 
-add_library(rocksdb_static_lib STATIC IMPORTED)
-set_target_properties(rocksdb_static_lib PROPERTIES
-  IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/librocksdb.a
-)
-add_executable(rocksdb_zen rocksdb_benchmark.cpp ${ZBTREE_CPPS} ${ZNS_CPPS} ${ROCKSDB_LIB})
-target_compile_options(rocksdb_zen PRIVATE -O2 -faligned-new -DHAVE_ALIGNED_NEW -DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX -DOS_LINUX -fno-builtin-memcmp -DROCKSDB_IOURING_PRESENT -DROCKSDB_FALLOCATE_PRESENT -DSNAPPY -DGFLAGS=1 -DZLIB -DBZIP2 -DLZ4 -DZSTD -DNUMA -DTBB -DROCKSDB_MALLOC_USABLE_SIZE -DROCKSDB_PTHREAD_ADAPTIVE_MUTEX -DROCKSDB_BACKTRACE -DROCKSDB_RANGESYNC_PRESENT -DROCKSDB_SCHED_GETCPU_PRESENT -DROCKSDB_AUXV_GETAUXVAL_PRESENT -march=native -DHAVE_UINT128_EXTENSION)
-set(ROCKSDB_LIB jemalloc pthread rt uring snappy gflags z bz2 lz4 zstd numa tbb zbd dl)
-target_link_libraries(rocksdb_zen
-        rocksdb_static_lib ${ROCKSDB_LIB})
+# add_library(rocksdb_static_lib STATIC IMPORTED)
+# set_target_properties(rocksdb_static_lib PROPERTIES
+#   IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/librocksdb.a
+# )
+# add_executable(rocksdb_zen rocksdb_benchmark.cpp ${ZBTREE_CPPS} ${ZNS_CPPS} ${ROCKSDB_LIB})
+# target_compile_options(rocksdb_zen PRIVATE -O2 -faligned-new -DHAVE_ALIGNED_NEW -DROCKSDB_PLATFORM_POSIX -DROCKSDB_LIB_IO_POSIX -DOS_LINUX -fno-builtin-memcmp -DROCKSDB_IOURING_PRESENT -DROCKSDB_FALLOCATE_PRESENT -DSNAPPY -DGFLAGS=1 -DZLIB -DBZIP2 -DLZ4 -DZSTD -DNUMA -DTBB -DROCKSDB_MALLOC_USABLE_SIZE -DROCKSDB_PTHREAD_ADAPTIVE_MUTEX -DROCKSDB_BACKTRACE -DROCKSDB_RANGESYNC_PRESENT -DROCKSDB_SCHED_GETCPU_PRESENT -DROCKSDB_AUXV_GETAUXVAL_PRESENT -march=native -DHAVE_UINT128_EXTENSION)
+# set(ROCKSDB_LIB jemalloc pthread rt uring snappy gflags z bz2 lz4 zstd numa tbb zbd dl)
+# target_link_libraries(rocksdb_zen
+#         rocksdb_static_lib ${ROCKSDB_LIB})
         
 
 

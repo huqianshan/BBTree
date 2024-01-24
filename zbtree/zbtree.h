@@ -117,6 +117,8 @@ struct BTreeLeaf : public BTreeLeafBase {
    */
   bool insert(Key k, Value p);
 
+  int BatchInsert(Key *keys, Value *values, int num);
+
   void Init(uint16_t num = 0, page_id_t id = 0);
 
   BTreeLeaf *split(Key &sep, ParallelBufferPoolManager *bpm);
@@ -179,6 +181,8 @@ struct alignas(CacheLineSize) BTree {
   void yield(int count);
 
   bool Insert(Key k, Value v);
+  
+  void BatchInsert(Key *keys, Value *values, int num);
 
   bool Get(Key k, Value &result);
 
@@ -191,6 +195,17 @@ struct alignas(CacheLineSize) BTree {
   void ToGraph(std::ofstream &out) const;
 
   void Draw(std::string path) const;
+};
+
+struct KVHolder {
+  Key* keys;
+  Value* values;
+  int num;
+  explicit KVHolder(Key* k, Value* v, int n): keys(k), values(v), num(n) {}
+  ~KVHolder() {
+    delete[] keys;
+    delete[] values;
+  }
 };
 
 }  // namespace btreeolc

@@ -96,7 +96,7 @@ struct BTreeLeaf : public BTreeLeafBase {
 
   static const uint64_t maxEntries =
           // pageSize / (sizeof(Key) + sizeof(Payload));
-      (pageSize) / (sizeof(Key) + sizeof(Payload));
+      (pageSize - sizeof(NodeBase)) / (sizeof(Key) + sizeof(Payload));
 
   // Key keys[maxEntries];
   // Payload payloads[maxEntries];
@@ -129,17 +129,6 @@ struct BTreeLeaf : public BTreeLeafBase {
     } while (lower < upper);
     return lower;
   }
-
-  // unsigned lowerBoundBF(Key k) {
-  //   auto base = keys;
-  //   unsigned n = count;
-  //   while (n > 1) {
-  //     const unsigned half = n / 2;
-  //     base = (base[half] < k) ? (base + half) : base;
-  //     n -= half;
-  //   }
-  //   return (*base < k) + base - keys;
-  // }
 
   void insert(Key k, Payload p) {
     assert(count < maxEntries);
@@ -386,7 +375,6 @@ struct BufferBTreeImp {
       Key sep;
       BTreeLeaf<Key, Value> *newLeaf = leaf->split(sep);
       leaf_count.fetch_add(1);
-      // printf("leaf count: %hd\n", leaf_count.load());
       if (parent)
         parent->insert(sep, newLeaf);
       else
@@ -433,24 +421,46 @@ struct BufferBTreeImp {
   using vec_type = std::vector<leaf_type *>;
   using pq_type = std::priority_queue<leaf_type *, vec_type, LeafCompare>;
   uint64_t flush_time = 0;
+  struct LeafCompareKeys {
+    bool operator()(const leaf_type *lhs, const leaf_type *rhs) const {
+      return lhs->keys[0]< rhs->keys[0];
+    }
+  };
   vec_type flush() {
     std::pair<vec_type, vec_type> ret = distinguish_leaves(root);
     vec_type flush_leaf = std::move(ret.first);
+#ifndef TRAVERSE_GREATER
+    std::sort(flush_leaf.begin(), flush_leaf.end(), LeafCompareKeys());
+#endif
     // mark flush leaf node as obsolete
-    vec_type keep_leaf = std::move(ret.second);
+    // vec_type keep_leaf = std::move(ret.second);
     // todo
     // merge insert leaf operation
     auto start = bench_start();
     for (auto leaf : flush_leaf) {
-      for (int i = 0; i < leaf->count; i++) {
-        device_tree->Insert(leaf->keys[i], leaf->payloads[i]);
-      }
+      flush_page(leaf);
+      // we have deleted the leaf
+      // delete_node(leaf);
     }
     auto end = bench_end();
     flush_time += end - start;
-    delete_nodes(flush_leaf);
+    // delete_nodes(flush_leaf);
     full = false;
     return {};
+  }
+
+  void flush_page(leaf_type* leaf)
+  {
+    auto keys = leaf->keys;
+    if(keys == nullptr) return ;
+    auto values = leaf->payloads;
+    auto num = leaf->count;
+    leaf->keys = nullptr;
+    leaf->payloads = nullptr;
+    leaf->count = 0;
+    leaf->access_count = 0;
+    leaf_count.fetch_sub(1);
+    device_tree->BatchInsert(keys, values, num);
   }
 
   void flush_all() {
@@ -470,10 +480,11 @@ struct BufferBTreeImp {
         }
         // todo
         // flush leaf at once
-        for (int i = 0; i < leaf->count; i++) {
-          device_tree->Insert(leaf->keys[i], leaf->payloads[i]);
-        }
-        delete_node(leaf);
+        // for (int i = 0; i < leaf->count; i++) {
+        //   device_tree->Insert(leaf->keys[i], leaf->payloads[i]);
+        // }
+        flush_page(leaf);
+        // delete_node(leaf);
       }
     };
     dfs(root.load());
@@ -569,7 +580,7 @@ struct BufferBTreeImp {
 #endif
   }
   // using max-heap with size of (max_leaf_count - keep_leaf_count)
-  // which means time O(nlogn) is smaller
+  // which means time O(nlogk) is smaller
   void traverse(NodeBase *node, pq_type &pq /*flush*/, vec_type &another) {
     if (node == nullptr) return;
     if (node->type == PageType::BTreeInner) {
@@ -579,6 +590,7 @@ struct BufferBTreeImp {
       }
     } else {
       leaf_type *leaf = (leaf_type *)node;
+      if(leaf->keys == nullptr) return;
       pq.push(leaf);
       if (pq.size() > max_leaf_count - keep_leaf_count) {
         auto top = pq.top();
@@ -599,6 +611,7 @@ struct BufferBTreeImp {
       }
     } else {
       leaf_type *leaf = (leaf_type *)node;
+      if(leaf->keys == nullptr) return ;
       pq.push(leaf);
       if (pq.size() > keep_leaf_count) {
         another.push_back(pq.top());
@@ -616,7 +629,6 @@ struct BufferBTreeImp {
   void delete_node(leaf_type *leaf) {
     if(leaf->keys == nullptr) return;
     leaf_count.fetch_sub(1);
-    // printf("leaf count: %hd\n", leaf_count.load());
     assert(leaf_count.load() >= 0);
     leaf->deleteNode();
   }
