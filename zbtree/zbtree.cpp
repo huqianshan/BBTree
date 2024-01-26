@@ -60,6 +60,117 @@ bool BTreeLeaf::insert(Key k, Value p) {
   return true;
 }
 
+int BTreeLeaf::BatchInsert(Key* keys, Value* values, int num)
+{
+  // static int call_cnt = 0;
+  // using namespace std;
+  // printf("call BatchInsert %d times with num:%d count:%d\n", ++call_cnt, num, count);
+  // if(call_cnt > 100) 
+  // {
+  //   unsigned pos = lowerBound(keys[0]);
+  //   cout << "pos: " << pos << endl;
+  //   cout << "before pos: " << endl;
+  //   for(int i = 0; i < pos; ++i)
+  //   {
+  //     cout << data[i].first << " ";
+  //   }
+  //   cout << endl;
+  //   cout << "after pos: " << endl;
+  //   for(int i = pos; i < count; ++i)
+  //   {
+  //     cout << data[i].first << " ";
+  //   }
+  //   cout << endl;
+  //   for(int i = 0; i < num; ++i)
+  //   {
+  //     cout << keys[i] << " ";
+  //   }
+  //   cout << endl;
+  //   exit(-1);
+  // }
+  assert(count < LeafNodeMaxEntries);
+  int write_cnt = 0;
+  if(count)
+  {
+    unsigned pos = lowerBound(keys[0]);
+    // std::unique_ptr<KeyValueType[]> original(new KeyValueType[count]);
+    KeyValueType original[count];
+    memcpy(original, data, sizeof(KeyValueType) * count);
+    // iter original data and write data in order
+    // original data position
+    int can_insert = LeafNodeMaxEntries - count;
+    unsigned ori_pos = pos;
+    // insert position
+    auto insert_pos = pos;
+    // write_cnt is the pos of new write data
+    while(ori_pos < count && write_cnt < num && insert_pos < LeafNodeMaxEntries && can_insert >= 0)
+    {
+      auto kv = original[ori_pos];
+      if(kv.first == keys[write_cnt])
+      {
+        // upsert
+        data[insert_pos] = std::make_pair(keys[write_cnt], values[write_cnt]);
+        ori_pos++;
+        write_cnt++;
+      }
+      else if(kv.first < keys[write_cnt])
+      {
+        data[insert_pos] = kv;
+        ori_pos++;
+      }
+      else
+      // kv.first > keys[write_cnt]
+      {
+        if(can_insert > 0)
+        {
+          data[insert_pos] = std::make_pair(keys[write_cnt], values[write_cnt]);
+          write_cnt++;
+          can_insert--;
+        }
+        else
+        {
+          break;
+        }
+      }
+      insert_pos++;
+    }
+    if(can_insert == 0 && ori_pos < count)
+    {
+      memcpy(data + insert_pos, original + ori_pos, sizeof(KeyValueType) * (count - ori_pos));
+      insert_pos += count - ori_pos;
+      count = insert_pos;
+      return write_cnt;
+    }
+    if(ori_pos < count)
+    {
+      // copy the rest data
+      memcpy(data + insert_pos, original + ori_pos, sizeof(KeyValueType) * (count - ori_pos));
+      insert_pos += count - ori_pos;
+    }
+    else if(write_cnt < num)
+    {
+      // copy the rest data
+      while(write_cnt < num && insert_pos < LeafNodeMaxEntries)
+      {
+        *(data + insert_pos) = std::make_pair(keys[write_cnt], values[write_cnt]);
+        insert_pos++;
+        write_cnt++;
+      }
+    }
+    count = insert_pos;
+    return write_cnt;
+  }
+  // there is no key
+  // so we can directly copy the data
+  while(write_cnt < num && write_cnt < LeafNodeMaxEntries)
+  {
+    data[write_cnt] = std::make_pair(keys[write_cnt], values[write_cnt]);
+    write_cnt++;
+  }
+  count = write_cnt;
+  return write_cnt;
+}
+
 void BTreeLeaf::Init(uint16_t num, page_id_t id) {
   count = num;
   page_id = id;
@@ -433,6 +544,172 @@ restart:
     return ret;
   }
   return false;
+}
+
+void BTree::BatchInsert(Key* keys, Value* values, int num) {
+  int restartCount = 0;
+  KVHolder holder(keys, values, num);
+  if(num == 0) return;
+restart:
+  if(restartCount++) yield(restartCount);
+  bool needRestart = false;
+  Key max_key = std::numeric_limits<Key>::max();
+  Key min_key = std::numeric_limits<Key>::min();
+
+  NodeBase* node = root.load();
+  uint64_t versionNode = node->readLockOrRestart(needRestart);
+  if(needRestart || (node != root)) goto restart;
+
+  BTreeInner* parent = nullptr;
+  uint64_t versionParent;
+  // Split eagerly if full
+  while (node->type == PageType::BTreeInner) {
+    auto inner = static_cast<BTreeInner*>(node);
+
+    // Split eagerly if full
+    if (inner->isFull()) {
+      // Lock
+      if (parent) {
+        parent->upgradeToWriteLockOrRestart(versionParent, needRestart);
+        if (needRestart) goto restart;
+      }
+      node->upgradeToWriteLockOrRestart(versionNode, needRestart);
+      if (needRestart) {
+        if (parent) parent->writeUnlock();
+        goto restart;
+      }
+      if (!parent && (node != root)) {  // there's a new parent
+        node->writeUnlock();
+        goto restart;
+      }
+      // Split
+      Key sep;
+      BTreeInner* newInner = inner->split(sep);
+      if (parent)
+        parent->insert(sep, newInner);
+      else
+        makeRoot(sep, inner, newInner);
+      // Unlock and restart
+      node->writeUnlock();
+      if (parent) parent->writeUnlock();
+      goto restart;
+    }
+
+    if (parent) {
+      parent->readUnlockOrRestart(versionParent, needRestart);
+      if (needRestart) goto restart;
+    }
+
+    parent = inner;
+    versionParent = versionNode;
+
+    auto k = keys[0];
+    auto lower = inner->lowerBound(k);
+    // we can only insert into [min_key, max_key]
+    if(lower != 0)
+    {
+      min_key = std::max(min_key, inner->keys[lower - 1] + 1);
+    }
+    if(lower != inner->count)
+    {
+      max_key = std::min(max_key, inner->keys[lower]);
+    }
+    node = inner->children[lower];
+    inner->checkOrRestart(versionNode, needRestart);
+    if (needRestart) goto restart;
+    versionNode = node->readLockOrRestart(needRestart);
+    if (needRestart) goto restart;
+  }
+  auto leaf = static_cast<BTreeLeaf*>(node);
+  // Split leaf if full
+  if (leaf->isFull()) {
+    // Lock
+    if (parent) {
+      parent->upgradeToWriteLockOrRestart(versionParent, needRestart);
+      if (needRestart) goto restart;
+    }
+    node->upgradeToWriteLockOrRestart(versionNode, needRestart);
+    if (needRestart) {
+      if (parent) parent->writeUnlock();
+      goto restart;
+    }
+    if (!parent && (node != root)) {  // there's a new parent
+      node->writeUnlock();
+      goto restart;
+    }
+    // Split
+    Key sep;
+    BTreeLeaf* newLeaf;
+    {
+      NodeRAII leaf_page(bpm, leaf->page_id);
+      leaf_page.SetDirty(true);
+      leaf->data = reinterpret_cast<KeyValueType*>(leaf_page.GetNode());
+      newLeaf = leaf->split(sep, bpm);
+    }
+    if (parent)
+      parent->insert(sep, newLeaf);
+    else
+      makeRoot(sep, leaf, newLeaf);
+    // Unlock and restart
+    node->writeUnlock();
+    if (parent) parent->writeUnlock();
+    goto restart;
+  } else {
+    // only lock leaf node
+    node->upgradeToWriteLockOrRestart(versionNode, needRestart);
+    if (needRestart) goto restart;
+    if (parent) {
+      parent->readUnlockOrRestart(versionParent, needRestart);
+      if (needRestart) {
+        node->writeUnlock();
+        goto restart;
+      }
+    }
+    NodeRAII leaf_page(bpm, leaf->page_id);
+    leaf_page.SetDirty(true);
+    leaf->data = reinterpret_cast<KeyValueType*>(leaf_page.GetNode());
+    // auto ret = leaf->insert(k, v);
+    unsigned upper = 0;
+    while(upper < num && keys[upper] <= max_key)
+    {
+      upper++;
+    }
+    auto insert_num = leaf->BatchInsert(keys, values, upper);
+    // auto check = [=](BTreeLeaf* leaf)
+    // {
+    //   using namespace std;
+    //   for(int i = 0; i < leaf->count - 1; ++i)
+    //   {
+    //     if(leaf->data[i].first >= leaf->data[i + 1].first)
+    //     {
+    //       cout << leaf->data[i].first << ">=" << leaf->data[i+1].first << endl;
+    //       return false;
+    //     }
+    //   }
+    //   for(int i = 0; i < leaf->count; ++i)
+    //   {
+    //     if(leaf->data[i].first < min_key || leaf->data[i].first > max_key)
+    //     {
+    //       cout << leaf->data[i].first << " not in [" << min_key << ", " << max_key << "]" << endl;
+    //       return false;
+    //     }
+    //   }
+    //   return true;
+    // };
+    // if(!check(leaf))
+    // {
+    //   assert(false);
+    // }
+    node->writeUnlock();
+    num -= insert_num;
+    if(num > 0) {
+      keys += insert_num;
+      values += insert_num;
+      goto restart;
+    }
+    return;
+  }
+  assert(false);
 }
 
 bool BTree::Get(Key k, Value& result) {
