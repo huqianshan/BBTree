@@ -6,6 +6,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "../zns/zone_device.h"
 #include "page.h"
 #include "replacer.h"
 #include "storage.h"
@@ -257,6 +258,42 @@ class ParallelBufferPoolManager {
   size_t num_instances_;
   std::atomic<size_t> index_;
   DiskManager *disk_manager_;
+};
+
+class ZoneBuffer {
+ public:
+  ZoneBuffer() = delete;
+  ZoneBuffer(zone_id_t zone_id);
+  ~ZoneBuffer();
+
+  bool Append(u64 size, bytes_t *data);
+  bool Find(zone_offset_t offset, bytes_t *data);
+
+  void Print();
+
+ public:
+  zone_id_t zone_id_;
+  Zone *zone_;
+  void *read_cache_;
+  void *ring_buffer_;
+
+  ReaderWriterLatch *rw_lock_;
+};
+
+class ZoneBufferPoolManager {
+ public:
+  ZoneBufferPoolManager() = delete;
+  ZoneBufferPoolManager(const char *db_file, u32 nums);
+  ~ZoneBufferPoolManager();
+
+  Page *FetchPage(page_id_t page_id);
+  bool UnpinPage(page_id_t page_id, bool is_dirty);
+  void Print();
+
+ public:
+  u32 nums_;
+  ZoneBuffer *zone_buffers_;
+  ZonedBlockDevice *zbd_;
 };
 
 // #define NO_BUFFER_POOL

@@ -558,3 +558,5 @@ void ParallelBufferPoolManager::Print() {
          "%2.2lf%%" KRESET "\n",
          count, miss, miss_ratio, hit, hit_ratio);
 }
+
+ZoneBufferPoolManager::ZoneBufferPoolManager(const char* db_file, u32 nums) {}
