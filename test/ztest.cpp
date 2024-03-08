@@ -7,6 +7,7 @@
 
 const std::string DEVICE_NAME = "/dev/nvme2n2";
 const uint64_t BUF_SIZE = 4096;
+const uint64_t PAGE_SIZE = 4096;
 
 void test_zbdlib_backend() {
   auto zns = new ZbdlibBackend(DEVICE_NAME);
@@ -42,17 +43,21 @@ void test_zoned_blocked_device() {
          zns_block->GetOpenIOZones(), zns_block->GetActiveIOZones());
 
   uint64_t offset = 0;
-  Zone *zone = zns_block->GetIOZone(offset);
+  Zone *zone = zns_block->GetZone(offset);
   if (zone != nullptr) {
     zone->Print();
     // auto ret = zbd_open_zones(zone, 0, info.zone_size * OPEN_ZONE_NUMS);
-    uint64_t size = std::max(BUF_SIZE * sizeof(char) + 2 * 4096, 4096ul * 3);
+    uint64_t size =
+        std::max(BUF_SIZE * sizeof(char) + 2 * PAGE_SIZE, PAGE_SIZE * 3);
     auto data = new char[size];
     auto raw_data = data;
-    data = (char *)((uint64_t)(data + 4096) & ~(4096ull - 1));
+    data = (char *)((uint64_t)(data + PAGE_SIZE) & ~(PAGE_SIZE - 1));
     memset((void *)data, 0x5a, BUF_SIZE);
 
     // zone->Append(data, BUF_SIZE);
+    offset = 2147483648;
+    zns_block->Read(data, offset, PAGE_SIZE, true);
+    printf("zone %lu read data: %s\n", offset / zns_block->GetZoneSize(), data);
     zone->Print();
     delete[] raw_data;
   }

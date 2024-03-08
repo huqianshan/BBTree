@@ -1,8 +1,6 @@
 #pragma once
 
 // #if !defined(ROCKSDB_LITE) && defined(OS_LINUX)
-#include <cstdint>
-
 #include <errno.h>
 #include <libzbd/zbd.h>
 #include <stdlib.h>
@@ -12,6 +10,7 @@
 
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <sstream>
 #include <string>

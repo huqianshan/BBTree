@@ -9,6 +9,7 @@
 #include <iostream>
 #include <mutex>
 #include <utility>  //std::pair
+
 #include "tsc.h"
 
 #define UNITTEST_
@@ -20,7 +21,7 @@ using u64 = uint64_t;
 using u32 = uint32_t;
 using i32 = int32_t;
 
-typedef u8 bytes_t;
+typedef u8 *bytes_t;
 typedef u64 page_id_t;
 typedef u64 offset_t;
 typedef u64 KeyType;

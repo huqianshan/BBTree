@@ -16,16 +16,26 @@ else()
   message(STATUS "Build type is set to ${CMAKE_BUILD_TYPE}")
 endif()
 
-include(FetchContent)
-FetchContent_Declare(
-  zenfs
-  # Specify the commit you depend on and update it regularly.
-  URL https://github.com/westerndigitalcorporation/zenfs/archive/refs/tags/v2.1.4.zip
-)
-# For Windows: Prevent overriding the parent project's compiler/linker settings
-# set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(zenfs)
+# include(FetchContent)
+# FetchContent_Declare(
+#   rocksdb
+#   # Specify the commit you depend on and update it regularly.
+#   URL https://github.com/facebook/rocksdb/archive/refs/tags/v8.10.0.zip
+# )
+# FetchContent_MakeAvailable(rocksdb)
 
+# FetchContent_Declare(
+#   zenfs
+#   # Specify the commit you depend on and update it regularly.
+#   URL https://github.com/westerndigitalcorporation/zenfs/archive/refs/tags/v2.1.4.zip
+# )
+
+# FetchContent_GetProperties(zenfs)
+# if(NOT zenfs_POPULATED)
+#   FetchContent_Populate(zenfs)
+#   # Copy the downloaded content to the desired directory
+#   file(COPY ${zenfs_SOURCE_DIR} DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/build/_deps/rocksdb-src/plugin/zenfs)
+# endif()
 ##
 ## compiler flags
 ##
