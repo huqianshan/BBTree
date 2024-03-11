@@ -75,13 +75,14 @@ class ZnsManager : public StorageManager {
   ~ZnsManager();
 
   /**
-   * @brief Get the Usable Zone object
-   * not full and not offline zone
+   * @brief Get the Usable Zone object,
+   * which is not full and not offline zone
    * @return true
    * @return false
    */
-  zone_id_t GetEmptyZoneId();
-  page_id_t GetNextWritePageId(zone_id_t zone_id);
+  Zone *GetUsableZone();
+  zns_id_t GetEmptyZoneId();
+  page_id_t GetNextWritePageId(zns_id_t zone_id);
 
   offset_t write_page(page_id_t page_id, const char *page_data) override;
   offset_t read_page(page_id_t page_id, char *page_data) override;

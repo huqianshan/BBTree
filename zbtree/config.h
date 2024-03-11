@@ -21,13 +21,12 @@ using u64 = uint64_t;
 using u32 = uint32_t;
 using i32 = int32_t;
 
-typedef u8 *bytes_t;
+typedef char *bytes_t;
 typedef u64 page_id_t;
 typedef u64 offset_t;
 typedef u64 KeyType;
 typedef u64 ValueType;
-typedef u64 zone_id_t;
-typedef u64 zone_offset_t;  // 16 bit for zone id, 48 bit for zone offset
+typedef u64 zns_id_t;  // 16 bit for zone id, 48 bit for zone offset
 typedef std::pair<KeyType, ValueType> PairType;
 
 static constexpr u32 PAGE_SIZE = 4096;  // size of a data page in byte
@@ -44,8 +43,8 @@ constexpr int32_t keep_leaf_count = MAX_KEEP_LEAF_MB * 1024 / 4;
 const KeyType MIN_KEY = std::numeric_limits<KeyType>::min();
 const ValueType INVALID_VALUE = std::numeric_limits<ValueType>::max();
 
-#define GET_ZONE_ID(pid_) ((pid_) >> 48)
-#define GET_ZONE_OFFSET(pid_) ((pid_) & 0x0000FFFFFFFFFFFF)
+#define GET_ZONE_ID(zid_) ((zid_) >> 48)
+#define GET_ZONE_OFFSET(zid_) ((zid_) & 0x0000FFFFFFFFFFFF)
 #define MAKE_PAGE_ID(zone_id, zone_offset) \
   (((zone_id) << 48) | ((zone_offset) & 0x0000FFFFFFFFFFFF))
 
@@ -88,54 +87,6 @@ class Node;
 class InnerNode;
 class LeafNode;
 
-template <typename T>
-class CircleBuffer {
-  // https://github.com/cameron314/concurrentqueue
- public:
-  CircleBuffer(u64 max_size)
-      : head_(0), tail_(0), size_(0), max_size_(max_size) {
-    buffer_ = new T[max_size_];
-  }
-  ~CircleBuffer() {}
-
-  bool Push(const T &item) {
-    u64 current_size = size_.load();
-    if (current_size == max_size_) {
-      return false;
-    }
-    buffer_[head_] = item;
-    u64 new_head = (head_ + 1) % max_size_;
-    head_.exchange(new_head);
-    size_.fetch_add(1);
-    return true;
-  }
-
-  bool Pop(T &item) {
-    u64 current_size = size_.load();
-    if (current_size == 0) {
-      return false;
-    }
-    item = buffer_[tail_];
-    u64 new_tail = (tail_ + 1) % max_size_;
-    tail_.exchange(new_tail);
-    size_.fetch_sub(1);
-    return true;
-  }
-
-  bool IsEmpty() { return size_.load() == 0; }
-
-  bool IsFull() { return size_.load() == max_size_; }
-
-  u64 Size() { return size_.load(); }
-
- private:
-  const u64 max_size_;
-  T *buffer_;
-  std::atomic<u64> head_;
-  std::atomic<u64> tail_;
-  std::atomic<u64> size_;
-};
-
 #define KNRM "\x1B[0m"
 #define KBOLD "\x1B[1m"
 #define KRED "\x1B[31m"
@@ -147,6 +98,26 @@ class CircleBuffer {
 #define KWHT "\x1B[37m"
 #define KRESET "\033[0m"
 #define STR(X) #X
+
+#define SAFE_DELETE(ptr) \
+  do {                   \
+    delete (ptr);        \
+    (ptr) = nullptr;     \
+  } while (0)
+
+#define FATAL_PRINT(fmt, args...)                                          \
+  fprintf(stderr, KRED "[%s:%d@%s()]: " fmt, __FILE__, __LINE__, __func__, \
+          ##args);                                                         \
+  fprintf(stderr, KRESET);                                                 \
+  fflush(stderr);
+
+#define CHECK_OR_EXIT(ptr, msg) \
+  do {                          \
+    if ((ptr) == nullptr) {     \
+      FATAL_PRINT(msg);         \
+      exit(-1);                 \
+    }                           \
+  } while (0)
 
 // Macros to disable copying and moving
 #define DISALLOW_COPY(cname)     \
@@ -161,9 +132,6 @@ class CircleBuffer {
   DISALLOW_COPY(cname);               \
   DISALLOW_MOVE(cname);
 
-// redefine assert()
-#define BTREE_ASSERT(expr, message) assert((expr) && (message))
-
 #ifdef NDEBUG
 #define VERIFY(expression) ((void)(expression))
 #else
@@ -174,7 +142,7 @@ class CircleBuffer {
 
 #define INFO_PRINT(fmt, args...)
 #define DEBUG_PRINT(fmt, args...)
-#define FATAL_PRINT(fmt, args...)
+// #define FATAL_PRINT(fmt, args...)
 
 #else
 
@@ -188,14 +156,6 @@ class CircleBuffer {
           ##args);                                                          \
   fprintf(stdout, KRESET);                                                  \
   fflush(stdout);
-
-#define FATAL_PRINT(fmt, args...)                                          \
-  fprintf(stderr, KNRM "[%s:%d@%s()]: " fmt, __FILE__, __LINE__, __func__, \
-          ##args);                                                         \
-  fprintf(stdout, KRESET);                                                 \
-  fflush(stderr);                                                          \
-  exit(-1);
-
 #endif
 
 // }  // namespace BTree

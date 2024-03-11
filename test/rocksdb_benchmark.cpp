@@ -212,7 +212,7 @@ void run_test(int num_thread, string load_data, string run_data,
   ParallelBufferPoolManager *para = new ParallelBufferPoolManager(
       INSTANCE_SIZE, PAGES_SIZE, FILE_NAME, false);
   btreeolc::BTree *tree = new btreeolc::BTree(para);
-#elif defined(BATCH_BTREE_ON_FS)
+#elif defined(BBTREE_ON_EXT4_SSDD)
   ParallelBufferPoolManager *para = new ParallelBufferPoolManager(
       INSTANCE_SIZE, PAGES_SIZE, FILE_NAME, false);
   std::shared_ptr<btreeolc::BTree> device_tree =
@@ -321,7 +321,7 @@ void run_test(int num_thread, string load_data, string run_data,
   for (size_t i = 0; i < num_thread; i++) {
     ths[i].join();
   }
-#ifdef BATCH_BTREE_ON_FS
+#ifdef BBTREE_ON_EXT4_SSDD
   tree->flush_all();
 #endif
   auto t = sw.elapsed<std::chrono::milliseconds>();
@@ -361,13 +361,13 @@ void run_test(int num_thread, string load_data, string run_data,
   auto write_count = para->GetWriteCount();
 #endif
 
-#ifdef BATCH_BTREE_ON_FS
+#ifdef BBTREE_ON_EXT4_SSDD
   auto wal_size = tree->wal_->Size();
   double wal_bytes_avg_write = 1.0 * wal_size / (LOAD_SIZE + RUN_SIZE);
   printf("[WriteAheadLog]:  Write amp: %6.2f bytes/op\n", wal_bytes_avg_write);
 #endif
 
-#ifndef BATCH_BTREE_ON_FS
+#ifndef BBTREE_ON_EXT4_SSDD
   delete tree;
 #endif
 

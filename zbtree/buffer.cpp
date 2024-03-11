@@ -377,7 +377,7 @@ ParallelBufferPoolManager::~ParallelBufferPoolManager() {
   }
 }
 
-size_t ParallelBufferPoolManager::GetPoolSize() {
+u64 ParallelBufferPoolManager::GetPoolSize() {
   // Get size of all BufferPoolManagerInstances
   size_t total = 0;
   for (auto& buffer : bpmis_) {
@@ -559,4 +559,423 @@ void ParallelBufferPoolManager::Print() {
          count, miss, miss_ratio, hit, hit_ratio);
 }
 
-ZoneBufferPoolManager::ZoneBufferPoolManager(const char* db_file, u32 nums) {}
+/*
+ * ===================================================================
+ * ===================================================================
+ * ======================== FIFO Batch Buffer ========================
+ * ===================================================================
+ * ===================================================================
+ */
+
+FIFOBacthReplacer::FIFOBacthReplacer(size_t num_pages) {
+  // fifo_list_ = new std::vector<frame_id_t>(num_pages);
+  head_ = new Item(-1, -1, nullptr);
+  tail_ = new Item(-1, -1, nullptr);
+
+  head_->next_ = tail_;
+  tail_->prev_ = head_;
+
+  max_size_ = num_pages;
+  cur_size_ = 0;
+}
+
+FIFOBacthReplacer::~FIFOBacthReplacer() {
+  while (head_) {
+    Item* temp = head_;
+    head_ = head_->next_;
+    delete temp;
+  }
+}
+
+bool FIFOBacthReplacer::Add(frame_id_t frame_id, u32 length, char* data) {
+  if (cur_size_ == max_size_) {
+    return false;
+  }
+  Item* item = new Item(frame_id, length, data);
+  item->prev_ = head_;
+
+  item->next_ = head_->next_;
+  head_->next_->prev_ = item;
+  head_->next_ = item;
+
+  cur_size_++;
+  return true;
+};
+
+bool FIFOBacthReplacer::IsFull() { return cur_size_ == max_size_; }
+
+bool FIFOBacthReplacer::Victim(Item** item) {
+  if (cur_size_ == 0) {
+    return false;
+  }
+
+  Item* temp = tail_->prev_;
+  temp->prev_->next_ = tail_;
+  tail_->prev_ = temp->prev_;
+  *item = temp;
+
+  cur_size_--;
+  return true;
+}
+
+u64 FIFOBacthReplacer::Size() { return cur_size_; }
+
+void FIFOBacthReplacer::Print() {
+  Item* temp = head_;
+  while (temp) {
+    std::cout << temp->frame_id_ << " ";
+    temp = temp->next_;
+  }
+  std::cout << std::endl;
+}
+
+/*
+ * ===================================================================
+ * ===================================================================
+ * ======================== ZoneManager   ============================
+ * ===================================================================
+ * ===================================================================
+ */
+
+ZoneManager::ZoneManager(Zone* zone, u64 max_size) : zone_(zone) {
+  zone_id_ = zone->GetZoneNr();
+  wp_ = zone->wp_ / PAGE_SIZE;
+  cap_ = zone->GetCapacityLeft() / PAGE_SIZE;
+  rw_lock_ = new ReaderWriterLatch();
+
+  replacer_ = new FIFOBacthReplacer(max_size);
+  flusher_ = new CircleBuffer<Slot>(max_size);
+  read_cache_ = nullptr;
+}
+ZoneManager::~ZoneManager() {
+  SAFE_DELETE(rw_lock_);
+  SAFE_DELETE(read_cache_);
+  SAFE_DELETE(replacer_);
+  SAFE_DELETE(flusher_);
+}
+
+/**
+ * every time add a page to flusher,
+ * check to flush the existed page in flusher to zns
+ */
+void ZoneManager::AddPage(Slot slot) {
+  flusher_->Push(slot);
+  Slot tmp;
+  if (!flusher_->Back(tmp)) {
+    return;
+  }
+
+  Page* page = tmp.first;
+  u64 length = tmp.second;
+
+  // :NOTE: :hjl:  may be need return and sleep
+  for (u64 cursor = 0; cursor < length; cursor++) {
+    // DEBUG_PRINT("%lu pin count %d \n", i, page[i].GetPinCount());
+    // ATOMIC_SPIN_UNTIL(page[i].GetPinCount(), 0);
+    if (page[cursor].GetReadCount() != 0) {
+      return;
+    }
+  }
+  flusher_->Pop(tmp);
+
+  zone_->Append(page->GetData(), length * PAGE_SIZE);
+  // disk_manager_->write_n_pages(page->GetPageId(), length, page->GetData());
+  // INFO_PRINT("[Flusher] write page %lu length %lu\n", page->GetPageId(),
+  //  length);
+  for (u64 i = 0; i < length; i++) {
+    // DEBUG_PRINT("%lu pin count %d \n", i, page[i].GetPinCount());
+    // buffer_pool_manager_->page_table_.erase(page[i].GetPageId());
+    page_table_.erase(page[i].GetPageId());
+    // ATOMIC_SPIN_UNTIL(page[i].GetReadCount(), 0);
+    page[i].SetStatus(FLUSHED);
+  }
+  // free(page->GetData());
+  // delete[] page;
+}
+
+Page* ZoneManager::GrabPageFrame(u64 length) {
+  Page* ret_page = nullptr;
+  Item* cur_item = nullptr;
+  if (!replacer_->IsFull()) {
+    Page* tmp_page = new Page[length];
+    char* page_data = (char*)aligned_alloc(PAGE_SIZE, length * PAGE_SIZE);
+    for (u64 i = 0; i < length; i++) {
+      tmp_page[i].SetData(page_data + i * PAGE_SIZE);
+    }
+    return tmp_page;
+  } else if (replacer_->Victim(&cur_item)) {
+    // 2. then find in replacer
+    ret_page = reinterpret_cast<Page*>(cur_item->data_);
+    u64 length = cur_item->length;
+    // 3. set the page_id to INVALID_PAGE_ID
+    for (size_t i = 0; i < length; i++) {
+      ret_page[i].SetStatus(EVICTED);
+    }
+    // 4. allocate new page
+    Page* tmp_page = new Page[length];
+    char* page_data = (char*)aligned_alloc(PAGE_SIZE, length * PAGE_SIZE);
+    for (u64 i = 0; i < length; i++) {
+      tmp_page[i].SetData(page_data + i * PAGE_SIZE);
+    }
+
+    // 5. if hot add to lru read buffer
+    /* for (size_t i = 0; i < length; i++) {
+      Page* cur_page = tmp_page + i;
+      page_id_t cur_page_id = cur_page->GetPageId();
+      // if (cur_page->IsHot()) {
+      if (page_id_counts_[cur_page_id] > 1) {
+        Page* page = read_buffer_->AddReadOnlyPage(cur_page_id);
+        memcpy(page->GetData(), cur_page->GetData(), PAGE_SIZE);
+        page->page_id_ = cur_page_id;
+      }
+    } */
+    AddPage({ret_page, length});
+    return tmp_page;
+  }
+  return nullptr;
+}
+
+Page* ZoneManager::GetPage(page_id_t page_id) {
+  Page* ret_page = nullptr;
+  if (page_table_.find(page_id) != page_table_.end()) {
+    // 1.1 first find in fifo write buffer
+    ret_page = page_table_[page_id];
+    // need update pin_count in outer function;
+    // DEBUG_PRINT("fetch *page_id:%4u frame_id:%4u\n", *page_id, cur_frame_id);
+    page_id_counts_[page_id]++;
+    hit_++;
+  }
+  return ret_page;
+}
+
+Page* ZoneManager::NewPage(page_id_t* page_id, u64 length = 1) {
+  WriteLockGuard guard(rw_lock_);
+  if (IsFull(length)) {
+    // 1. get new zone if current zone is full
+    // :TODO: :hjl:
+    exit(-1);
+  }
+  for (u64 i = 0; i < length; i++) {
+    page_id[i] = AllocatePageId();
+  }
+  Page* ret_page = GrabPageFrame(length);
+  Item* tem_item = nullptr;
+  auto ret =
+      replacer_->Add(page_id[0], length, reinterpret_cast<char*>(ret_page));
+  if (!ret) {
+    FATAL_PRINT("replacer add failed\n");
+  }
+
+  for (u64 i = 0; i < length; i++) {
+    ret_page[i].page_id_ = page_id[i];
+    ret_page[i].pin_count_ = 1;
+    ret_page[i].read_count_ = 0;
+    ret_page[i].is_dirty_ = true;
+    // ret_page[i].ResetMemory();
+    page_table_[page_id[i]] = ret_page + i;
+
+    page_id_counts_[page_id[i]] = 1;
+    miss_++;
+    count_++;
+  }
+  return ret_page;
+}
+
+Page* ZoneManager::UpdatePage(page_id_t* page_id) {
+  WriteLockGuard guard(rw_lock_);
+  count_++;
+  // 1. find in RingBuffer first
+  Page* ret_page = nullptr;
+  // 1.1 find in fifo buffer first
+  ret_page = GetPage(*page_id);
+  if (ret_page != nullptr && !ret_page->IsEvicted()) {
+    hit_++;
+    ret_page->pin_count_++;
+    return ret_page;
+  }
+
+  // 1.2 find in lru cache
+  miss_++;
+  // 3. read the page from raw id on zns, allocate a new page_id in zns
+  page_id_t tmp_page_id = INVALID_PAGE_ID;
+  Page* new_page = NewPage(&tmp_page_id);
+  if (ret_page != nullptr && !ret_page->IsFlushed()) {
+    memcpy(new_page->GetData(), ret_page->GetData(), PAGE_SIZE);
+  } else {
+    ReadPageFromZNS((bytes_t*)(new_page->GetData()), *page_id);
+  }
+  *page_id = tmp_page_id;
+
+  return new_page;
+}
+
+Page* ZoneManager::FetchPage(page_id_t page_id) {
+  ReadLockGuard guard(rw_lock_);
+  // 1. find in RingBuffer first
+  Page* page = nullptr;
+  if (page = GetPage(page_id)) {
+    return page;
+  }
+  // 2. find in LRU cache, if not exist in LRU cache, then fetch from disk
+  // automatically
+  // page = read_cache_->FetchPage(page_id);
+  return page;
+}
+
+bool ZoneManager::UnpinPage(page_id_t page_id, bool is_dirty) {
+  WriteLockGuard guard(rw_lock_);
+  // 1. find in RingBuffer first
+  // 0 Make sure you can unpin page_id
+  if (page_table_.find(page_id) == page_table_.end()) {
+    return true;
+  }
+  // 1 get page object
+  Page* cur_page = page_table_[page_id];
+  if (is_dirty) {
+    // if page is dirty but is_dirty indicates non-dirty, it also should be
+    // dirty
+    cur_page->is_dirty_ |= is_dirty;
+  }
+  if (cur_page->GetPinCount() > 0) {
+    cur_page->pin_count_--;
+  }
+  return true;
+
+  // 2. find in LRU cache, if not exist in LRU cache, then fetch from disk
+  // automatically
+  // page = read_cache_->UnpinPage(page_id, is_dirty);
+}
+
+offset_t ZoneManager::AllocatePageId() {
+  if (wp_ < cap_) {
+    return wp_++;
+  } else {
+    return INVALID_PAGE_ID;
+  }
+}
+
+bool ZoneManager::ReadPageFromZNS(bytes_t* data, zns_id_t zid,
+                                  u32 page_nums = 1) {
+  offset_t zone_offset = zone_->GetMaxCapacity() * GET_ZONE_OFFSET(zid);
+  offset_t offset = zone_offset + GET_ZONE_OFFSET(zid) * PAGE_SIZE;
+  return zone_->Read((char*)data, page_nums, offset);
+}
+
+/*
+ * ===================================================================
+ * ===================================================================
+ * ========================  ZoneBufferPool ==========================
+ * ===================================================================
+ * ===================================================================
+ */
+ZoneManagerPool::ZoneManagerPool(u32 pool_size, u32 num_instances_,
+                                 const char* db_file)
+    : pool_size_(pool_size), num_instances_(num_instances_), index_(0) {
+  zns_ = new ZnsManager(db_file);
+
+  CHECK_OR_EXIT(zns_, "ZnsManager is nullptr\n");
+
+  for (size_t i = 0; i < num_instances_; i++) {
+    auto zone = zns_->GetUsableZone();
+    auto zbf = new ZoneManager(zone);
+    zone_buffers_.push_back(zbf);
+  }
+
+  INFO_PRINT("ZoneManagerPool is created\n");
+}
+
+ZoneManagerPool::~ZoneManagerPool() {
+  for (auto& zbf : zone_buffers_) {
+    SAFE_DELETE(zbf);
+  }
+  SAFE_DELETE(zns_);
+  INFO_PRINT("ZoneManagerPool is deleted\n");
+}
+
+zns_id_t ZoneManagerPool::RoundRobinZoneId() {
+  size_t start_index = index_;
+  size_t loop_index = index_;
+  index_ = (index_ + 1) % num_instances_;
+  zns_id_t ret_id = -1;
+  while (true) {
+    ret_id = loop_index;
+    if (ret_id != -1) {
+      return ret_id;
+    }
+    loop_index = (loop_index + 1) % num_instances_;
+    if (loop_index == start_index) {
+      return -1;
+    }
+  }
+  return ret_id;
+}
+// :TODO: :hjl: the condition which zone is full is not implemented
+Page* ZoneManagerPool::NewPage(page_id_t* page_id, u64 length = 1) {
+  // 1. robin-round to get zone buffer
+  size_t start_index = index_;
+  size_t loop_index = index_;
+  index_ = (index_ + 1) % num_instances_;
+  Page* ret_page = nullptr;
+  while (true) {
+    // 2. get page from zone buffer
+    ret_page = zone_buffers_[loop_index]->NewPage(page_id, length);
+    if (ret_page != nullptr) {
+      return ret_page;
+    }
+    loop_index = (loop_index + 1) % num_instances_;
+    if (loop_index == start_index) {
+      return nullptr;
+    }
+  }
+  return ret_page;
+}
+
+Page* ZoneManagerPool::FetchPage(page_id_t page_id) {
+  // 1. get zone buffer from pageid
+  // 2. return the page from zone buffer
+  return zone_buffers_[GET_ZONE_ID(page_id)]->FetchPage(page_id);
+}
+
+Page* ZoneManagerPool::UpdatePage(page_id_t* page_id) {
+  return zone_buffers_[GET_ZONE_ID(*page_id)]->UpdatePage(page_id);
+}
+
+bool ZoneManagerPool::UnpinPage(page_id_t page_id, bool is_dirty) {
+  return zone_buffers_[GET_ZONE_ID(page_id)]->UnpinPage(page_id, is_dirty);
+}
+
+u64 ZoneManagerPool::GetPoolSize() {
+  u64 total = 0;
+  for (auto& buffer : zone_buffers_) {
+    total += buffer->replacer_->Size();
+  }
+  return total;
+}
+
+u64 ZoneManagerPool::GetFileSize() {
+  u64 total = 0;
+  for (auto& buffer : zone_buffers_) {
+    total += buffer->zone_->GetCapacityLeft();
+  }
+  return total;
+}
+
+u64 ZoneManagerPool::GetReadCount() {
+  u64 total = 0;
+  for (auto& buffer : zone_buffers_) {
+    // total += buffer->zone_->GetReadCount();
+  }
+  return total;
+}
+
+u64 ZoneManagerPool::GetWriteCount() {
+  u64 total = 0;
+  for (auto& buffer : zone_buffers_) {
+    // total += buffer->zone_->GetWriteCount();
+  }
+  return total;
+}
+
+void ZoneManagerPool::Print() {
+  INFO_PRINT("ParallelBufferPoolManager Print\n");
+}

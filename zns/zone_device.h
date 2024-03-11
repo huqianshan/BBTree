@@ -27,6 +27,7 @@ class Zone {
  public:
   explicit Zone(ZonedBlockDevice *zbd, ZonedBlockDeviceBackend *zbd_be,
                 std::unique_ptr<ZoneList> &zones, unsigned int idx);
+  ~Zone();
 
   uint64_t start_;
   uint64_t capacity_; /* remaining capacity */
@@ -34,10 +35,16 @@ class Zone {
   uint64_t wp_;
   std::atomic<uint64_t> used_capacity_;
 
+  uint64_t read_count_;
+  uint64_t write_count_;
+
   IOStatus Reset();
   IOStatus Finish();
   IOStatus Close();
   IOStatus Append(char *data, uint32_t size);
+  /** offset is the offset in the zns device ,
+   * offset and size are both in bytes
+   */
   IOStatus Read(char *data, uint32_t size, uint64_t offset, bool direct = true);
 
   bool IsUsed();
@@ -46,7 +53,11 @@ class Zone {
   // bool IsOffline();
   uint64_t GetZoneNr();
   uint64_t GetCapacityLeft();
+  uint64_t GetMaxCapacity();
   uint64_t GetNextPageId();
+
+  uint64_t GetReadCount();
+  uint64_t GetWriteCount();
 
   void Print();
   void PrintZbd();
