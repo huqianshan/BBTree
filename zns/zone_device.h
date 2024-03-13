@@ -35,8 +35,9 @@ class Zone {
   uint64_t wp_;
   std::atomic<uint64_t> used_capacity_;
 
-  uint64_t read_count_;
-  uint64_t write_count_;
+  uint64_t read_count_ = 0;
+  uint64_t write_count_ = 0;
+  uint64_t write_bytes_ = 0;
 
   IOStatus Reset();
   IOStatus Finish();
@@ -86,6 +87,8 @@ class ZonedBlockDevice {
   uint32_t finish_threshold_ = 0;
   std::atomic<uint64_t> bytes_written_{0};
   std::atomic<uint64_t> gc_bytes_written_{0};
+  std::atomic<uint64_t> write_count_{0};
+  std::atomic<uint64_t> read_count_{0};
 
   std::atomic<long> active_io_zones_;
   std::atomic<long> open_io_zones_;
@@ -107,28 +110,33 @@ class ZonedBlockDevice {
   IOStatus AllocateEmptyZone(Zone **zone_out);
   IOStatus InvalidateCache(uint64_t pos, uint64_t size);
 
-  uint32_t GetNrZones();
-  uint64_t GetFreeSpace();
-  uint64_t GetUsedSpace();
-  uint64_t GetReclaimableSpace();
-  uint64_t GetBlockSize();
-  uint64_t GetZoneSize();
-  std::string GetFilename();
-  Zone *GetZoneFromOffset(uint64_t offset);
-  Zone *GetZone(uint64_t zone_id);
-
+  void AddWriteCount(uint64_t count) { write_count_.fetch_add(count); };
+  void AddReadCount(uint64_t count) { read_count_.fetch_add(count); };
   void AddBytesWritten(uint64_t written) {
     bytes_written_.fetch_add(written, std::memory_order_relaxed);
   };
   void AddGCBytesWritten(uint64_t written) {
     gc_bytes_written_.fetch_add(written, std::memory_order_relaxed);
   };
+
+  uint32_t GetNrZones();
+  uint64_t GetFreeSpace();
+  uint64_t GetUsedSpace();
+  uint64_t GetReclaimableSpace();
+  uint64_t GetBlockSize();
+  uint64_t GetZoneSize();
+  Zone *GetZoneFromOffset(uint64_t offset);
+  Zone *GetZone(uint64_t zone_id);
+
+  uint64_t GetReadCount() { return read_count_.load(); };
+  uint64_t GetWriteCount() { return write_count_.load(); };
   uint64_t GetUserBytesWritten() {
     return bytes_written_.load() - gc_bytes_written_.load();
   };
   uint64_t GetTotalBytesWritten() { return bytes_written_.load(); };
   uint64_t GetActiveIOZones() { return active_io_zones_.load(); };
   uint64_t GetOpenIOZones() { return open_io_zones_.load(); };
+  std::string GetFilename();
 
   void PrintUsedZones();
   void EncodeJson(std::ostream &json_stream);

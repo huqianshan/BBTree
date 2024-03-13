@@ -118,9 +118,9 @@ ZnsManager::ZnsManager(const char *db_file, uint32_t num_instances) {
 }
 
 ZnsManager::~ZnsManager() {
-  if (zbd_ != nullptr) {
-    delete zbd_;
-  }
+  // if (zbd_ != nullptr) {
+  // delete zbd_;
+  // }
 }
 
 Zone *ZnsManager::GetUsableZone() {

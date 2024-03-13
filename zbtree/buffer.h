@@ -131,7 +131,7 @@ class BufferPoolManager {
   void WaitForFreeFrame();
   void SignalForFreeFrame();
 
-  void PrintBufferPool();
+  void Print();
 
   /** Number of pages in the buffer pool. */
   const size_t pool_size_;
@@ -326,9 +326,11 @@ class CircleBuffer {
   }
 
   bool IsEmpty() { return size_.load() == 0; }
-
   bool IsFull() { return size_.load() == max_size_; }
-
+  u64 GetTail() { return tail_.load(); }
+  u64 GetHead() { return head_.load(); }
+  T At(u64 index) { return buffer_[index]; }
+  T Set(u64 index, T item) { buffer_[index] = item; }
   u64 Size() { return size_.load(); }
 
  private:
@@ -367,6 +369,11 @@ class FIFOBacthReplacer {
 };
 
 #define MAX_CACHED_PAGES_PER_ZONE (512)
+#define MIN_SEQ_PAGES_TO_BE_FLUSHED (4)
+#define MAX_NUMS_ZONE (1)
+// #define NO_BUFFER_POOL
+#define ZNS_BUFFER_POOL
+// #define RAW_BUFFER_POOL
 typedef std::pair<Page *, u64> Slot;
 class ZoneManager {
  public:
@@ -374,11 +381,14 @@ class ZoneManager {
   ZoneManager(Zone *z, u64 max_size = MAX_CACHED_PAGES_PER_ZONE);
   ~ZoneManager();
 
-  offset_t AllocatePageId();
+  bool AllocatePageId(page_id_t *page_id);
   // get page from hash map
-  Page *GetPage(page_id_t page_id);
-  Page *GrabPageFrame(u64 length = 1);
-  bool ReadPageFromZNS(bytes_t *data, zns_id_t zid, u32 page_nums = 1);
+  Page *GetPageImp(page_id_t page_id);
+  Page *AllocateSeqPage(u64 length = 1);
+  Page *GrabPageFrameImp(u64 length = 1);
+  bool ReadPageFromZNSImp(bytes_t *data, zns_id_t zid, u32 page_nums = 1);
+  // no lock
+  Page *NewPageImp(page_id_t *page_id, u64 length = 1);
 
   /* allocate a page in zns
    * if length > 1 pageid will be consecutive in a zone*/
@@ -389,6 +399,7 @@ class ZoneManager {
   Page *FetchPage(page_id_t page_id);
   /* unpin a page in circle buffer or read cache */
   bool UnpinPage(page_id_t page_id, bool is_dirty);
+  void FlushAllPages();
 
   void AddPage(Slot slot);
 
@@ -402,6 +413,8 @@ class ZoneManager {
   offset_t wp_;
   // remained pages of this zone
   offset_t cap_;
+  // the end of this zone
+  offset_t end_;
   Zone *zone_;
 
   std::unordered_map<page_id_t, Page *> page_table_;
@@ -438,10 +451,11 @@ class ZoneManagerPool {
 
   bool UnpinPage(page_id_t page_id, bool is_dirty);
 
+  void FlushAllPages();
+
   /**
    * Helper Function
    */
-  zns_id_t RoundRobinZoneId();
   u64 GetPoolSize();
   u64 GetFileSize();
   u64 GetReadCount();
@@ -457,15 +471,14 @@ class ZoneManagerPool {
   std::atomic<zns_id_t> index_;
   ZnsManager *zns_;
   std::vector<ZoneManager *> zone_buffers_;
+  // key is zone id, value is the offset in zone_buffers_
+  std::unordered_map<zns_id_t, u32> zone_table_;
 };
-
-// #define NO_BUFFER_POOL
-#define ZNS_BUFFER_POOL
-// #define RAW_BUFFER_POOL
 
 class NodeRAII {
  public:
-  NodeRAII(void *buffer_pool_manager, page_id_t page_id)
+  NodeRAII(void *buffer_pool_manager, page_id_t &page_id,
+           bool read_only = READ_ONLY)
       : buffer_pool_manager_(buffer_pool_manager), page_id_(page_id) {
     page_ = nullptr;
     dirty_ = false;
@@ -474,12 +487,19 @@ class NodeRAII {
     node_ = (char *)aligned_alloc(PAGE_SIZE, PAGE_SIZE);
     disk_manager_->read_page(page_id_, node_);
 #elif defined(RAW_BUFFER_POOL)
-    page_ = buffer_pool_manager_->FetchPage(page_id_);
+    auto bpm = static_cast<ParallelBufferPoolManager *>(buffer_pool_manager_);
+    page_ = bpm->FetchPage(page_id_);
     CheckAndInitPage();
 #elif defined(ZNS_BUFFER_POOL)
     ZoneManagerPool *zmp = (ZoneManagerPool *)buffer_pool_manager_;
-    page_ = zmp->FetchPage(page_id_);
+    if (read_only) {
+      page_ = zmp->FetchPage(page_id_);
+    } else {
+      page_ = zmp->UpdatePage(&page_id_);
+      page_id = page_id_;
+    }
     CheckAndInitPage();
+    read_flag_ = read_only;
 #endif
     // DEBUG_PRINT("raii fetch\n");
   }
@@ -494,11 +514,13 @@ class NodeRAII {
     memset(node_, 0x00, PAGE_SIZE);
     dirty_ = true;
 #elif defined(RAW_BUFFER_POOL)
-    page_ = buffer_pool_manager_->NewPage(&page_id_);
+    auto bpm = static_cast<ParallelBufferPoolManager *>(buffer_pool_manager_);
+    page_ = bpm->NewPage(&page_id_);
     CheckAndInitPage();
 #elif defined(ZNS_BUFFER_POOL)
     ZoneManagerPool *zmp = (ZoneManagerPool *)buffer_pool_manager_;
     page_ = zmp->NewPage(&page_id_);
+    read_flag_ = WRITE_FLAG;
     CheckAndInitPage();
 #endif
     *page_id = page_id_;
@@ -524,11 +546,15 @@ class NodeRAII {
     }
 #elif defined(RAW_BUFFER_POOL)
     if (page_ != nullptr) {
-      buffer_pool_manager_->UnpinPage(page_id_, dirty_);
+      auto bpm = static_cast<ParallelBufferPoolManager *>(buffer_pool_manager_);
+      bpm->UnpinPage(page_id_, dirty_);
       // DEBUG_PRINT("raii unpin\n");
     }
 #elif defined(ZNS_BUFFER_POOL)
     if (page_ != nullptr) {
+      // if (read_flag_) {
+      // page_->SetDirty(true);
+      // }
       ZoneManagerPool *zmp = (ZoneManagerPool *)buffer_pool_manager_;
       zmp->UnpinPage(page_id_, dirty_);
       // DEBUG_PRINT("raii unpin\n");
@@ -554,5 +580,6 @@ class NodeRAII {
   page_id_t page_id_;
   Page *page_ = nullptr;
   char *node_ = nullptr;
-  bool dirty_;
+  bool dirty_ = false;
+  bool read_flag_ = false;
 };

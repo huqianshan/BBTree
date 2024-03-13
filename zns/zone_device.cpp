@@ -28,10 +28,7 @@ Zone::Zone(ZonedBlockDevice *zbd, ZonedBlockDeviceBackend *zbd_be,
       busy_(false),
       start_(zbd_be->ZoneStart(zones, idx)),
       max_capacity_(zbd_be->ZoneMaxCapacity(zones, idx)),
-      wp_(zbd_be->ZoneWp(zones, idx)),
-      read_count_(0),
-      write_count_(0) {
-  // lifetime_ = Env::WLTH_NOT_SET;
+      wp_(zbd_be->ZoneWp(zones, idx)) {
   used_capacity_ = wp_ - start_;
   capacity_ = 0;
   if (zbd_be->ZoneIsWritable(zones, idx)) {
@@ -40,11 +37,14 @@ Zone::Zone(ZonedBlockDevice *zbd, ZonedBlockDeviceBackend *zbd_be,
 }
 
 Zone::~Zone() {
-  if (Close()) {
-    // 1. add write count read count to zbd_
-    zbd_->AddWriteCount(write_count_);
-    zbd_->AddReadCount(read_count_);
-  }
+  // if (Close()) {
+  // 1. add write count read count to zbd_
+  printf("write count:%lu read count:%lu write bytes:%lu \n", write_count_,
+         read_count_, write_bytes_);
+  zbd_->AddWriteCount(write_count_);
+  zbd_->AddReadCount(read_count_);
+  zbd_->AddBytesWritten(write_bytes_);
+  // }
 }
 
 bool Zone::IsUsed() { return (used_capacity_ > 0); }
@@ -120,6 +120,7 @@ IOStatus Zone::Read(char *data, uint32_t size, uint64_t offset, bool direct) {
       return IOError(strerror(errno));
     } else if (r != left) {
       printf("not read all data\n");
+      printf("r:%d left:%d offset:%lu\n", r, left, offset);
       exit(1);
       return IOError("Read failed");
     }
@@ -156,7 +157,7 @@ IOStatus Zone::Append(char *data, uint32_t size) {
     wp_ += ret;
     capacity_ -= ret;
     left -= ret;
-    zbd_->AddBytesWritten(ret);
+    write_bytes_ += ret;
   }
 
   write_count_++;

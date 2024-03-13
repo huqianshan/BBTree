@@ -36,8 +36,8 @@ const u64 MILLION = 1000 * 1000;
  *
  */
 // #define RAW_BTREE_ON_FS
-#define BBTREE_ON_EXT4_SSDD
-// #define BTREE_ON_ZNS
+// #define BBTREE_ON_EXT4_SSDD
+#define BBTREE_ON_ZNS
 
 #ifdef RAW_BTREE_ON_FS
 const std::string TREE_NAME = "BTreeBufferOnExt4SSD";
@@ -188,9 +188,11 @@ void run_test(int num_thread, string load_data, string run_data,
       std::make_shared<btreeolc::BTree>(para);
   std::shared_ptr<btreeolc::BufferBTree<KeyType, ValueType> > tree(
       new btreeolc::BufferBTree<KeyType, ValueType>(device_tree));
-#elif defined(BTREE_ON_ZNS)
-  DiskManager *disk = new DiskManager(FILE_NAME.c_str());
-  FIFOBatchBufferPool *para = new FIFOBatchBufferPool(PAGES_SIZE, disk);
+#elif defined(BBTREE_ON_ZNS)
+  // DiskManager *disk = new DiskManager(FILE_NAME.c_str());
+  // FIFOBatchBufferPool *para = new FIFOBatchBufferPool(PAGES_SIZE, disk);
+  ZoneManagerPool *para =
+      new ZoneManagerPool(MAX_CACHED_PAGES_PER_ZONE, MAX_NUMS_ZONE, ZNS_DEVICE);
   btreeolc::BTree *tree = new btreeolc::BTree(para);
 #endif
 
@@ -317,6 +319,7 @@ void run_test(int num_thread, string load_data, string run_data,
 #endif
 
 #ifndef BBTREE_ON_EXT4_SSDD
+  delete para;
   delete tree;
 #endif
 

@@ -9,6 +9,9 @@
 #include "config.h"
 #include "rwlatch.h"
 
+#define DESTROY_PAGE(page) \
+  free(page->GetData());   \
+  delete[] page;
 /**
  * Page is the basic unit of storage within the database system. Page provides a
  * wrapper for actual data pages being held in main memory. Page also contains

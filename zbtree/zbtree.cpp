@@ -60,12 +60,11 @@ bool BTreeLeaf::insert(Key k, Value p) {
   return true;
 }
 
-int BTreeLeaf::BatchInsert(Key* keys, Value* values, int num)
-{
+int BTreeLeaf::BatchInsert(Key* keys, Value* values, int num) {
   // static int call_cnt = 0;
   // using namespace std;
-  // printf("call BatchInsert %d times with num:%d count:%d\n", ++call_cnt, num, count);
-  // if(call_cnt > 100) 
+  // printf("call BatchInsert %d times with num:%d count:%d\n", ++call_cnt, num,
+  // count); if(call_cnt > 100)
   // {
   //   unsigned pos = lowerBound(keys[0]);
   //   cout << "pos: " << pos << endl;
@@ -90,8 +89,7 @@ int BTreeLeaf::BatchInsert(Key* keys, Value* values, int num)
   // }
   assert(count < LeafNodeMaxEntries);
   int write_cnt = 0;
-  if(count)
-  {
+  if (count) {
     unsigned pos = lowerBound(keys[0]);
     // std::unique_ptr<KeyValueType[]> original(new KeyValueType[count]);
     KeyValueType original[count];
@@ -103,56 +101,47 @@ int BTreeLeaf::BatchInsert(Key* keys, Value* values, int num)
     // insert position
     auto insert_pos = pos;
     // write_cnt is the pos of new write data
-    while(ori_pos < count && write_cnt < num && insert_pos < LeafNodeMaxEntries && can_insert >= 0)
-    {
+    while (ori_pos < count && write_cnt < num &&
+           insert_pos < LeafNodeMaxEntries && can_insert >= 0) {
       auto kv = original[ori_pos];
-      if(kv.first == keys[write_cnt])
-      {
+      if (kv.first == keys[write_cnt]) {
         // upsert
         data[insert_pos] = std::make_pair(keys[write_cnt], values[write_cnt]);
         ori_pos++;
         write_cnt++;
-      }
-      else if(kv.first < keys[write_cnt])
-      {
+      } else if (kv.first < keys[write_cnt]) {
         data[insert_pos] = kv;
         ori_pos++;
-      }
-      else
+      } else
       // kv.first > keys[write_cnt]
       {
-        if(can_insert > 0)
-        {
+        if (can_insert > 0) {
           data[insert_pos] = std::make_pair(keys[write_cnt], values[write_cnt]);
           write_cnt++;
           can_insert--;
-        }
-        else
-        {
+        } else {
           break;
         }
       }
       insert_pos++;
     }
-    if(can_insert == 0 && ori_pos < count)
-    {
-      memcpy(data + insert_pos, original + ori_pos, sizeof(KeyValueType) * (count - ori_pos));
+    if (can_insert == 0 && ori_pos < count) {
+      memcpy(data + insert_pos, original + ori_pos,
+             sizeof(KeyValueType) * (count - ori_pos));
       insert_pos += count - ori_pos;
       count = insert_pos;
       return write_cnt;
     }
-    if(ori_pos < count)
-    {
+    if (ori_pos < count) {
       // copy the rest data
-      memcpy(data + insert_pos, original + ori_pos, sizeof(KeyValueType) * (count - ori_pos));
+      memcpy(data + insert_pos, original + ori_pos,
+             sizeof(KeyValueType) * (count - ori_pos));
       insert_pos += count - ori_pos;
-    }
-    else if(write_cnt < num)
-    {
+    } else if (write_cnt < num) {
       // copy the rest data
-      while(write_cnt < num && insert_pos < LeafNodeMaxEntries)
-      {
-        *(data + insert_pos) = std::make_pair(keys[write_cnt], values[write_cnt]);
+      while (write_cnt < num && insert_pos < LeafNodeMaxEntries) {
+        *(data + insert_pos) =
+            std::make_pair(keys[write_cnt], values[write_cnt]);
         insert_pos++;
         write_cnt++;
       }
@@ -162,8 +151,7 @@ int BTreeLeaf::BatchInsert(Key* keys, Value* values, int num)
   }
   // there is no key
   // so we can directly copy the data
-  while(write_cnt < num && write_cnt < LeafNodeMaxEntries)
-  {
+  while (write_cnt < num && write_cnt < LeafNodeMaxEntries) {
     data[write_cnt] = std::make_pair(keys[write_cnt], values[write_cnt]);
     write_cnt++;
   }
@@ -178,7 +166,7 @@ void BTreeLeaf::Init(uint16_t num, page_id_t id) {
   data = NULL;
 }
 
-BTreeLeaf* BTreeLeaf::split(Key& sep, ParallelBufferPoolManager* bpm) {
+BTreeLeaf* BTreeLeaf::split(Key& sep, void* bpm) {
   BTreeLeaf* newLeaf = new BTreeLeaf();
   page_id_t new_page_id;
   NodeRAII new_page(bpm, &new_page_id);
@@ -195,7 +183,7 @@ BTreeLeaf* BTreeLeaf::split(Key& sep, ParallelBufferPoolManager* bpm) {
   return newLeaf;
 }
 
-void BTreeLeaf::Print(ParallelBufferPoolManager* bpm) {
+void BTreeLeaf::Print(void* bpm) {
   INFO_PRINT("[LeafNode page_id:%lu addr:%p count: %3u ", this->page_id, this,
              this->count);
   NodeRAII node(bpm, this->page_id);
@@ -207,7 +195,7 @@ void BTreeLeaf::Print(ParallelBufferPoolManager* bpm) {
   INFO_PRINT("]\n");
 }
 
-void BTreeLeaf::ToGraph(std::ofstream& out, ParallelBufferPoolManager* bpm) {
+void BTreeLeaf::ToGraph(std::ofstream& out, void* bpm) {
   std::string leaf_prefix("LEAF_");
   // Print node name
   out << leaf_prefix << this;
@@ -293,7 +281,7 @@ void BTreeInner::insert(Key k, NodeBase* child) {
   count++;
 }
 
-void BTreeInner::Print(ParallelBufferPoolManager* bpm) {
+void BTreeInner::Print(void* bpm) {
   INFO_PRINT("[Internal Page: %4p count: %3u ", this, this->count);
   for (int i = 0; i < this->count; i++) {
     INFO_PRINT(" %lu -> %4p", this->keys[i], this->children[i]);
@@ -312,7 +300,7 @@ void BTreeInner::Print(ParallelBufferPoolManager* bpm) {
   }
 }
 
-void BTreeInner::ToGraph(std::ofstream& out, ParallelBufferPoolManager* bpm) {
+void BTreeInner::ToGraph(std::ofstream& out, void* bpm) {
   std::string internal_prefix("INT_");
   std::string leaf_prefix("LEAF_");
   // Print node name
@@ -379,7 +367,7 @@ void BTreeInner::ToGraph(std::ofstream& out, ParallelBufferPoolManager* bpm) {
   }
 };
 
-BTree::BTree(ParallelBufferPoolManager* buffer) {
+BTree::BTree(void* buffer) {
   bpm = buffer;
   auto tem = new BTreeLeaf();
   root.store(tem, std::memory_order_release);
@@ -404,7 +392,7 @@ BTree::~BTree() {
   GetNodeNums();
   // Print();
   if (bpm) {
-    delete bpm;
+    // delete bpm;
     bpm = nullptr;
   }
 }
@@ -512,7 +500,7 @@ restart:
     Key sep;
     BTreeLeaf* newLeaf;
     {
-      NodeRAII leaf_page(bpm, leaf->page_id);
+      NodeRAII leaf_page(bpm, leaf->page_id, WRITE_FLAG);
       leaf_page.SetDirty(true);
       leaf->data = reinterpret_cast<KeyValueType*>(leaf_page.GetNode());
       newLeaf = leaf->split(sep, bpm);
@@ -536,7 +524,7 @@ restart:
         goto restart;
       }
     }
-    NodeRAII leaf_page(bpm, leaf->page_id);
+    NodeRAII leaf_page(bpm, leaf->page_id, WRITE_FLAG);
     leaf_page.SetDirty(true);
     leaf->data = reinterpret_cast<KeyValueType*>(leaf_page.GetNode());
     auto ret = leaf->insert(k, v);
@@ -549,16 +537,16 @@ restart:
 void BTree::BatchInsert(Key* keys, Value* values, int num) {
   int restartCount = 0;
   KVHolder holder(keys, values, num);
-  if(num == 0) return;
+  if (num == 0) return;
 restart:
-  if(restartCount++) yield(restartCount);
+  if (restartCount++) yield(restartCount);
   bool needRestart = false;
   Key max_key = std::numeric_limits<Key>::max();
   Key min_key = std::numeric_limits<Key>::min();
 
   NodeBase* node = root.load();
   uint64_t versionNode = node->readLockOrRestart(needRestart);
-  if(needRestart || (node != root)) goto restart;
+  if (needRestart || (node != root)) goto restart;
 
   BTreeInner* parent = nullptr;
   uint64_t versionParent;
@@ -606,12 +594,10 @@ restart:
     auto k = keys[0];
     auto lower = inner->lowerBound(k);
     // we can only insert into [min_key, max_key]
-    if(lower != 0)
-    {
+    if (lower != 0) {
       min_key = std::max(min_key, inner->keys[lower - 1] + 1);
     }
-    if(lower != inner->count)
-    {
+    if (lower != inner->count) {
       max_key = std::min(max_key, inner->keys[lower]);
     }
     node = inner->children[lower];
@@ -641,7 +627,7 @@ restart:
     Key sep;
     BTreeLeaf* newLeaf;
     {
-      NodeRAII leaf_page(bpm, leaf->page_id);
+      NodeRAII leaf_page(bpm, leaf->page_id, WRITE_FLAG);
       leaf_page.SetDirty(true);
       leaf->data = reinterpret_cast<KeyValueType*>(leaf_page.GetNode());
       newLeaf = leaf->split(sep, bpm);
@@ -665,13 +651,12 @@ restart:
         goto restart;
       }
     }
-    NodeRAII leaf_page(bpm, leaf->page_id);
+    NodeRAII leaf_page(bpm, leaf->page_id, WRITE_FLAG);
     leaf_page.SetDirty(true);
     leaf->data = reinterpret_cast<KeyValueType*>(leaf_page.GetNode());
     // auto ret = leaf->insert(k, v);
     unsigned upper = 0;
-    while(upper < num && keys[upper] <= max_key)
-    {
+    while (upper < num && keys[upper] <= max_key) {
       upper++;
     }
     auto insert_num = leaf->BatchInsert(keys, values, upper);
@@ -682,16 +667,16 @@ restart:
     //   {
     //     if(leaf->data[i].first >= leaf->data[i + 1].first)
     //     {
-    //       cout << leaf->data[i].first << ">=" << leaf->data[i+1].first << endl;
-    //       return false;
+    //       cout << leaf->data[i].first << ">=" << leaf->data[i+1].first <<
+    //       endl; return false;
     //     }
     //   }
     //   for(int i = 0; i < leaf->count; ++i)
     //   {
     //     if(leaf->data[i].first < min_key || leaf->data[i].first > max_key)
     //     {
-    //       cout << leaf->data[i].first << " not in [" << min_key << ", " << max_key << "]" << endl;
-    //       return false;
+    //       cout << leaf->data[i].first << " not in [" << min_key << ", " <<
+    //       max_key << "]" << endl; return false;
     //     }
     //   }
     //   return true;
@@ -702,7 +687,7 @@ restart:
     // }
     node->writeUnlock();
     num -= insert_num;
-    if(num > 0) {
+    if (num > 0) {
       keys += insert_num;
       values += insert_num;
       goto restart;
