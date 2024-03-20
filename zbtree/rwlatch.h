@@ -91,3 +91,29 @@ class ReaderWriterLatch {
   uint32_t reader_count_{0};
   bool writer_entered_{false};
 };
+
+class ReadLockGuard {
+ public:
+  DISALLOW_COPY_AND_MOVE(ReadLockGuard);
+
+  explicit ReadLockGuard(ReaderWriterLatch* latch) : latch_(latch) {
+    latch_->RLock();
+  }
+  ~ReadLockGuard() { latch_->RUnlock(); }
+
+ private:
+  ReaderWriterLatch* latch_;
+};
+
+class WriteLockGuard {
+ public:
+  DISALLOW_COPY_AND_MOVE(WriteLockGuard);
+
+  explicit WriteLockGuard(ReaderWriterLatch* latch) : latch_(latch) {
+    latch_->WLock();
+  }
+  ~WriteLockGuard() { latch_->WUnlock(); }
+
+ private:
+  ReaderWriterLatch* latch_;
+};

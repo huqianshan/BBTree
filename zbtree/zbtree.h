@@ -122,15 +122,19 @@ struct BTreeLeaf : public BTreeLeafBase {
 
   void Init(uint16_t num = 0, page_id_t id = 0);
 
-  BTreeLeaf *split(Key &sep, ParallelBufferPoolManager *bpm);
+  BTreeLeaf *split(Key &sep, void *bpm);
 
-  void Print(ParallelBufferPoolManager *bpm);
+  void Print(void *bpm);
+
 
   void ToGraph(std::ofstream &out, ParallelBufferPoolManager *bpm);
   virtual ~BTreeLeaf() {
     // delete[] data;
     // data = nullptr;
   }
+
+  void ToGraph(std::ofstream &out, void *bpm);
+
 };
 
 struct BTreeInnerBase : public NodeBase {
@@ -166,7 +170,8 @@ struct alignas(InnerNodeSize) BTreeInner : public BTreeInnerBase {
 
   void insert(Key k, NodeBase *child);
 
-  void Print(ParallelBufferPoolManager *bpm);
+  void Print(void *bpm);
+
 
   void ToGraph(std::ofstream &out, ParallelBufferPoolManager *bpm);
   virtual ~BTreeInner() {
@@ -176,13 +181,16 @@ struct alignas(InnerNodeSize) BTreeInner : public BTreeInnerBase {
     }
 
   }
+
+  void ToGraph(std::ofstream &out, void *bpm);
+
 };
 // template <class Key, class Value>
 struct alignas(CacheLineSize) BTree {
   std::atomic<NodeBase *> root;
-  ParallelBufferPoolManager *bpm;
+  void *bpm;
 
-  BTree(ParallelBufferPoolManager *buffer);
+  BTree(void *buffer);
 
   virtual ~BTree();
 
@@ -193,7 +201,7 @@ struct alignas(CacheLineSize) BTree {
   void yield(int count);
 
   bool Insert(Key k, Value v);
-  
+
   void BatchInsert(Key *keys, Value *values, int num);
 
   bool Get(Key k, Value &result);
@@ -215,10 +223,10 @@ struct alignas(CacheLineSize) BTree {
  * Description: 自动释放内存
  */
 struct KVHolder {
-  Key* keys;
-  Value* values;
+  Key *keys;
+  Value *values;
   int num;
-  explicit KVHolder(Key* k, Value* v, int n): keys(k), values(v), num(n) {}
+  explicit KVHolder(Key *k, Value *v, int n) : keys(k), values(v), num(n) {}
   ~KVHolder() {
     delete[] keys;
     delete[] values;

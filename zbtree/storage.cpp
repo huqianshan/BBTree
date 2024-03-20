@@ -118,12 +118,23 @@ ZnsManager::ZnsManager(const char *db_file, uint32_t num_instances) {
 }
 
 ZnsManager::~ZnsManager() {
-  if (zbd_ != nullptr) {
-    delete zbd_;
-  }
+  // if (zbd_ != nullptr) {
+  // delete zbd_;
+  // }
 }
 
-zone_id_t ZnsManager::GetEmptyZoneId() {
+Zone *ZnsManager::GetUsableZone() {
+  Zone *zone = nullptr;
+  IOStatus ios = zbd_->AllocateEmptyZone(&zone);
+  if (ios != OK()) {
+    return nullptr;
+  }
+  DEBUG_PRINT("[ZnsManager] new zone_id=%lu, offset=%lu\n", zone->GetZoneNr(),
+              zone->wp_);
+  return zone;
+}
+
+page_id_t ZnsManager::GetEmptyZoneId() {
   Zone *zone = nullptr;
   IOStatus ios = zbd_->AllocateEmptyZone(&zone);
   if (ios != OK()) {
@@ -134,7 +145,7 @@ zone_id_t ZnsManager::GetEmptyZoneId() {
   return MAKE_PAGE_ID(zone->GetZoneNr(), zone->wp_);
 }
 
-page_id_t ZnsManager::GetNextWritePageId(zone_id_t zone_id) {
+page_id_t ZnsManager::GetNextWritePageId(zns_id_t zone_id) {
   // ZonedBlockDeviceBackend *zbd_be = zbd_->zbd_be_.get();
   offset_t offset = zone_id * zbd_->GetZoneSize();
   Zone *zone = zbd_->GetZoneFromOffset(offset);

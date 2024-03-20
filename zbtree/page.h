@@ -9,6 +9,9 @@
 #include "config.h"
 #include "rwlatch.h"
 
+#define DESTROY_PAGE(page) \
+  free(page->GetData());   \
+  delete[] page;
 /**
  * Page is the basic unit of storage within the database system. Page provides a
  * wrapper for actual data pages being held in main memory. Page also contains
@@ -45,6 +48,7 @@ class Page {
 
   /** @return the pin count of this page */
   inline int GetPinCount() { return pin_count_; }
+  inline int GetReadCount() { return read_count_.load(); }
 
   /** @return true if the page in memory has been modified from the page on
    * disk, false otherwise */
@@ -66,6 +70,18 @@ class Page {
 
   /** helper function Set dirty flag */
   inline void SetDirty(bool is_dirty) { is_dirty_ = is_dirty; }
+  inline void SetStatus(PageStatus status) {
+    status_.store(status, std::memory_order_release);
+  }
+  inline bool IsActive() {
+    return status_.load(std::memory_order_acquire) == ACTIVE;
+  }
+  inline bool IsEvicted() {
+    return status_.load(std::memory_order_acquire) == EVICTED;
+  }
+  inline bool IsFlushed() {
+    return status_.load(std::memory_order_acquire) == FLUSHED;
+  }
 
   //  protected:
   static const size_t SIZE_PAGE_HEADER = 8;
@@ -86,6 +102,9 @@ class Page {
   /** True if the page is dirty, i.e. it is different from its corresponding
    * page on disk. */
   bool is_dirty_ = false;
+  /** The read count of this page. */
+  std::atomic<int> read_count_{0};
+  std::atomic<int> status_{0};
   /** Page latch. */
   ReaderWriterLatch rwlatch_;
 };
