@@ -302,12 +302,12 @@ void run_test(int num_thread, string load_data, string run_data,
        << "\t99.999% " << latency_all[size_t(0.99999 * sz)] << "\n"
        << "\t100% " << latency_all[sz - 1] << endl;
 #endif
+
+  para->FlushAllPages();
 #ifdef DRAM_CONSUMPTION
   //   ret = system((dram_shell + process_name).c_str());
   GetDRAMSpace();
 #endif
-
-  para->FlushAllPages();
 
   auto file_size = para->GetFileSize();
   auto read_count = para->GetReadCount();
@@ -424,5 +424,6 @@ int main(int argc, char **argv) {
          read_amplification_zone, write_amplification_zone);
 #endif
   printf("Test End\n");
+  GetDRAMSpace();
   return 0;
 }

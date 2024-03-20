@@ -6,8 +6,16 @@ endif(POLICY CMP0048)
 project(BBTree VERSION 0.1)
 
 # specify the C++ standard
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(BOOST_ROOT /usr/include/boost)
+find_package(Boost REQUIRED COMPONENTS system thread)
+if(Boost_FOUND)
+	include_directories(${Boost_INCLUDE_DIRS})
+	link_directories(${Boost_LIBRARY_DIRS})
+	link_libraries(${Boost_LIBRARIES})
+endif()
+
 
 if(NOT CMAKE_BUILD_TYPE)
   message(STATUS "No build type selected, default to Release")
@@ -39,8 +47,9 @@ endif()
 ##
 ## compiler flags
 ##
-set(CMAKE_CXX_FLAGS "-Wall -Werror -pthread -std=c++17")
-set(CMAKE_CXX_FLAGS_DEBUG "-O2 -g3 -fno-inline -fno-omit-frame-pointer") #-fsanitize=leak,address,undefined
+# set(CMAKE_CXX_FLAGS "-Wall -Werror -pthread")
+set(CMAKE_CXX_FLAGS "-pthread")
+set(CMAKE_CXX_FLAGS_DEBUG "-O2 -g3 -fno-inline -fno-omit-frame-pointer")# -fsanitize=leak,address,undefined")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 
 
