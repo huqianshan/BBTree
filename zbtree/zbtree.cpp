@@ -62,32 +62,6 @@ bool BTreeLeaf::insert(Key k, Value p) {
 
 int BTreeLeaf::BatchInsert(Key* keys, Value* values, int num)
 {
-  // static int call_cnt = 0;
-  // using namespace std;
-  // printf("call BatchInsert %d times with num:%d count:%d\n", ++call_cnt, num, count);
-  // if(call_cnt > 100) 
-  // {
-  //   unsigned pos = lowerBound(keys[0]);
-  //   cout << "pos: " << pos << endl;
-  //   cout << "before pos: " << endl;
-  //   for(int i = 0; i < pos; ++i)
-  //   {
-  //     cout << data[i].first << " ";
-  //   }
-  //   cout << endl;
-  //   cout << "after pos: " << endl;
-  //   for(int i = pos; i < count; ++i)
-  //   {
-  //     cout << data[i].first << " ";
-  //   }
-  //   cout << endl;
-  //   for(int i = 0; i < num; ++i)
-  //   {
-  //     cout << keys[i] << " ";
-  //   }
-  //   cout << endl;
-  //   exit(-1);
-  // }
   assert(count < LeafNodeMaxEntries);
   int write_cnt = 0;
   if(count)
@@ -236,6 +210,7 @@ void BTreeLeaf::ToGraph(std::ofstream& out, ParallelBufferPoolManager* bpm) {
 };
 
 BTreeInner::BTreeInner() {
+  memset(children, 0, sizeof(children));
   count = 0;
   type = typeMarker;
 }
@@ -402,6 +377,8 @@ BTree::BTree(ParallelBufferPoolManager* buffer) {
 
 BTree::~BTree() {
   GetNodeNums();
+  delete root.load();
+  root.store(nullptr);
   // Print();
   if (bpm) {
     delete bpm;
@@ -548,7 +525,7 @@ restart:
 
 void BTree::BatchInsert(Key* keys, Value* values, int num) {
   int restartCount = 0;
-  KVHolder holder(keys, values, num);
+  // KVHolder holder(keys, values, num);
   if(num == 0) return;
 restart:
   if(restartCount++) yield(restartCount);
@@ -675,31 +652,6 @@ restart:
       upper++;
     }
     auto insert_num = leaf->BatchInsert(keys, values, upper);
-    // auto check = [=](BTreeLeaf* leaf)
-    // {
-    //   using namespace std;
-    //   for(int i = 0; i < leaf->count - 1; ++i)
-    //   {
-    //     if(leaf->data[i].first >= leaf->data[i + 1].first)
-    //     {
-    //       cout << leaf->data[i].first << ">=" << leaf->data[i+1].first << endl;
-    //       return false;
-    //     }
-    //   }
-    //   for(int i = 0; i < leaf->count; ++i)
-    //   {
-    //     if(leaf->data[i].first < min_key || leaf->data[i].first > max_key)
-    //     {
-    //       cout << leaf->data[i].first << " not in [" << min_key << ", " << max_key << "]" << endl;
-    //       return false;
-    //     }
-    //   }
-    //   return true;
-    // };
-    // if(!check(leaf))
-    // {
-    //   assert(false);
-    // }
     node->writeUnlock();
     num -= insert_num;
     if(num > 0) {

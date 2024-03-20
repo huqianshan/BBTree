@@ -18,6 +18,7 @@
 #include "../test/common.h"
 #include "wal.h"
 #include "zbtree.h"
+#include "thread_pool.h"
 
 // #define DEBUG_BUFFER
 
@@ -29,7 +30,11 @@ enum class PageType : uint8_t { BTreeInner = 1, BTreeLeaf = 2 };
 static const uint64_t pageSize = 4 * 1024;
 
 struct OptLock {
-  std::atomic<uint64_t> typeVersionLockObsolete{0b100};
+	OptLock() : typeVersionLockObsolete(0b100) {
+	
+	}
+//   std::atomic<uint64_t> typeVersionLockObsolete{0b100};
+	std::atomic<uint64_t> typeVersionLockObsolete;
 
   bool isLocked(uint64_t version) { return ((version & 0b10) == 0b10); }
 
@@ -81,6 +86,7 @@ struct NodeBase : public OptLock {
   PageType type;
   uint16_t count;
   uint32_t access_count;
+  virtual ~NodeBase() = default;
 };
 
 struct BTreeLeafBase : public NodeBase {
@@ -146,8 +152,9 @@ struct BTreeLeaf : public BTreeLeafBase {
       keys[pos] = k;
       payloads[pos] = p;
     } else {
-      if(keys == nullptr)
+      if(keys == nullptr || payloads == nullptr)
       {
+        assert(keys == nullptr && payloads == nullptr);
         keys = new Key[maxEntries];
         payloads = new Payload[maxEntries];
         count = 0;
@@ -179,8 +186,13 @@ struct BTreeLeaf : public BTreeLeafBase {
     sep = keys[count - 1];
     return newLeaf;
   }
-  ~BTreeLeaf() {
-    deleteNode();
+  virtual ~BTreeLeaf() {
+    delete[] keys;
+    delete[] payloads;
+    keys = nullptr;
+    payloads = nullptr;
+    count = 0;
+    access_count = 0;
   }
 };
 
@@ -252,7 +264,7 @@ struct BTreeInner : public BTreeInnerBase {
     std::swap(children[pos], children[pos + 1]);
     count++;
   }
-  ~BTreeInner() {
+  virtual ~BTreeInner() {
     for (int i = 0; i <= count; i++) {
       delete children[i];
     }
@@ -265,11 +277,12 @@ struct BufferBTreeImp {
   std::atomic<int16_t> leaf_count;
   std::atomic<bool> full;
   std::shared_ptr<BTree> device_tree;
+  thread_pool pool;
   using leaf_type = BTreeLeaf<Key, Value>;
   using inner_type = BTreeInner<Key>;
 
   explicit BufferBTreeImp(std::shared_ptr<BTree> device_tree)
-      : device_tree(device_tree) {
+      : device_tree(device_tree), pool(POOL_SIZE, device_tree) {
     root = new BTreeLeaf<Key, Value>();
     leaf_count.store(0);
     full = false;
@@ -429,28 +442,35 @@ struct BufferBTreeImp {
   vec_type flush() {
     std::pair<vec_type, vec_type> ret = distinguish_leaves(root);
     vec_type flush_leaf = std::move(ret.first);
-#ifndef TRAVERSE_GREATER
+// #ifndef TRAVERSE_GREATER
     std::sort(flush_leaf.begin(), flush_leaf.end(), LeafCompareKeys());
-#endif
-    // mark flush leaf node as obsolete
-    // vec_type keep_leaf = std::move(ret.second);
-    // todo
-    // merge insert leaf operation
+// #endif
     auto start = bench_start();
-    for (auto leaf : flush_leaf) {
-      flush_page(leaf);
-      // we have deleted the leaf
-      // delete_node(leaf);
-    }
-    auto end = bench_end();
-    flush_time += end - start;
-    // delete_nodes(flush_leaf);
-    full = false;
-    return {};
+	thread_pool::q_type q;
+	for(auto leaf : flush_leaf)
+	{
+		q.emplace_back(leaf->keys, leaf->payloads, leaf->count);
+		leaf->keys = nullptr;
+		leaf->payloads = nullptr;
+		leaf->count = 0;
+		leaf->access_count = 0;
+    leaf_count.fetch_sub(1);
+	}
+	pool.queue(q);
+  auto end = bench_end();
+  flush_time += end - start;
+  full = false;
+  return {};
   }
 
+	/*
+	 * Author: chenbo
+	 * Time: 2024-03-19 15:52:49
+	 * Description: 这个函数应该不会被调用了
+	 */
   void flush_page(leaf_type* leaf)
   {
+	assert(false);
     auto keys = leaf->keys;
     if(keys == nullptr) return ;
     auto values = leaf->payloads;
@@ -460,10 +480,16 @@ struct BufferBTreeImp {
     leaf->count = 0;
     leaf->access_count = 0;
     leaf_count.fetch_sub(1);
+	/*
+	 * Author: chenbo
+	 * Time: 2024-03-19 14:58:39
+	 * Description: 由thread_pool::queue调用
+	 */
     device_tree->BatchInsert(keys, values, num);
   }
 
   void flush_all() {
+	thread_pool::q_type q;
     std::function<void(NodeBase *)> dfs = [&](NodeBase *node) {
       if (node == nullptr) return;
       if (node->type == PageType::BTreeInner) {
@@ -475,19 +501,26 @@ struct BufferBTreeImp {
         leaf_type *leaf = (leaf_type *)node;
         if(leaf->keys == nullptr)
         {
-          assert(leaf->count == 0);
+          assert(leaf->count == 0 && leaf->payloads == nullptr);
           return ;
         }
-        // todo
-        // flush leaf at once
-        // for (int i = 0; i < leaf->count; i++) {
-        //   device_tree->Insert(leaf->keys[i], leaf->payloads[i]);
-        // }
-        flush_page(leaf);
+		/*
+		 * Author: chenbo
+		 * Time: 2024-03-19 15:40:44
+		 * Description: 将所有的leaf放在一个队列中，然后交给线程池处理	
+		 */
+		q.emplace_back(leaf->keys, leaf->payloads, leaf->count);
+		leaf->keys = nullptr;
+		leaf->payloads = nullptr;
+		leaf->count = 0;
+		leaf->access_count = 0;
+    leaf_count.fetch_sub(1);
         // delete_node(leaf);
       }
     };
     dfs(root.load());
+    if(q.size() != 0)
+      pool.queue(q);
   }
 
   void GetNodeNums() const {
@@ -736,7 +769,7 @@ struct BufferBTreeImp {
 
     return count;
   }
-  ~BufferBTreeImp() {
+  virtual ~BufferBTreeImp() {
     delete root.load();
     root = nullptr;
   }
@@ -766,9 +799,6 @@ struct BufferBTree {
       share_lock.unlock();
       std::unique_lock<std::shared_mutex> u_lock(mtx);
       if (current->full) {
-        // rebuild the tree base on keep_leaf and we restart insert
-        // INFO_PRINT("flush all when leaf_count== %lu\n", current->leaf_count.load());
-        // cerr << current->leaf_count.load() << endl;
         auto keep_leaf = std::move(current->flush());
         current->full = false;
       }

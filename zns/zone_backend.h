@@ -19,6 +19,8 @@
 #include <vector>
 
 // https://stackoverflow.com/questions/71274207/how-to-bold-text-in-c-program
+#ifndef COLOR_MACRO
+#define COLOR_MACRO
 #define STR(X) #X
 #define KNRM "\x1B[0m"
 #define KBOLD "\e[1m"
@@ -44,6 +46,7 @@
 #define COLOR_BOLD_SLOW_BLINKING "\e[1;5m"
 #define COLOR_BOLD_SLOW_BLINKING_RED "\e[1;5;31m"
 #define COLOR_BOLD_BLUE "\e[1;34m"
+#endif
 
 using IOStatus = int;
 enum Code : unsigned char {

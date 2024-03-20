@@ -88,6 +88,7 @@ struct OptLock {
 struct NodeBase : public OptLock {
   PageType type;
   uint16_t count;
+  virtual ~NodeBase() = default;
 };
 
 struct BTreeLeafBase : public NodeBase {
@@ -99,7 +100,7 @@ struct BTreeLeafBase : public NodeBase {
 struct BTreeLeaf : public BTreeLeafBase {
   page_id_t page_id;
   // This is the array that we perform search on
-  KeyValueType *data;
+  KeyValueType *data = nullptr;
 
   BTreeLeaf();
 
@@ -126,6 +127,10 @@ struct BTreeLeaf : public BTreeLeafBase {
   void Print(ParallelBufferPoolManager *bpm);
 
   void ToGraph(std::ofstream &out, ParallelBufferPoolManager *bpm);
+  virtual ~BTreeLeaf() {
+    // delete[] data;
+    // data = nullptr;
+  }
 };
 
 struct BTreeInnerBase : public NodeBase {
@@ -164,6 +169,13 @@ struct alignas(InnerNodeSize) BTreeInner : public BTreeInnerBase {
   void Print(ParallelBufferPoolManager *bpm);
 
   void ToGraph(std::ofstream &out, ParallelBufferPoolManager *bpm);
+  virtual ~BTreeInner() {
+    for (int i = 0; i <= count; i++) {
+      delete children[i];
+      children[i] = nullptr;
+    }
+
+  }
 };
 // template <class Key, class Value>
 struct alignas(CacheLineSize) BTree {
@@ -172,7 +184,7 @@ struct alignas(CacheLineSize) BTree {
 
   BTree(ParallelBufferPoolManager *buffer);
 
-  ~BTree();
+  virtual ~BTree();
 
   bool IsEmpty() const;
 
@@ -197,6 +209,11 @@ struct alignas(CacheLineSize) BTree {
   void Draw(std::string path) const;
 };
 
+/*
+ * Author: chenbo
+ * Time: 2024-03-20 08:39:46
+ * Description: 自动释放内存
+ */
 struct KVHolder {
   Key* keys;
   Value* values;
@@ -205,6 +222,8 @@ struct KVHolder {
   ~KVHolder() {
     delete[] keys;
     delete[] values;
+    keys = nullptr;
+    values = nullptr;
   }
 };
 
