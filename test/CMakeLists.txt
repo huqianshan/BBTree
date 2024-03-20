@@ -6,9 +6,9 @@ include_directories(../zns)
 file(GLOB ZBTREE_CPPS "../zbtree/*.cpp")
 file(GLOB ZNS_CPPS "../zns/*.cpp")
 
-set(CMAKE_CXX_FLAGS "-std=c++11 ")
+# set(CMAKE_CXX_FLAGS "-std=c++2a ")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -mavx512f -DNDEBUG")
-set(CMAKE_CXX_FLAGS_DEBUG "-g3 -march=native ")
+set(CMAKE_CXX_FLAGS_DEBUG "-g3 -march=native")# -fsanitize=leak,address,undefined ")
 
 include(FetchContent)
 FetchContent_Declare(
@@ -31,7 +31,9 @@ add_executable(btree-olc benchmark.cpp ${ZBTREE_CPPS} ${ZNS_CPPS})
 target_link_libraries(btree-olc
         jemalloc
         pthread
-        zbd)
+        zbd
+		${Boost_LIBRARIES}
+		)
 
 # add_library(rocksdb_static_lib STATIC IMPORTED)
 # set_target_properties(rocksdb_static_lib PROPERTIES

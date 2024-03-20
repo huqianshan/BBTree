@@ -1,4 +1,6 @@
 #pragma once
+#ifndef CONFIG_H
+#define CONFIG_H
 
 #include <immintrin.h>
 
@@ -35,10 +37,11 @@ static constexpr u32 CIRCLE_FLUSHER_SIZE = 1024;
 static constexpr page_id_t INVALID_PAGE_ID = -1;  // invalid page id
 // config for buffer_btree
 // how many leaf nodes can be kept in memory
-constexpr int32_t MAX_BUFFER_LEAF_MB = 10;
-constexpr int32_t MAX_KEEP_LEAF_MB = 1;
+constexpr int32_t MAX_BUFFER_LEAF_MB = 15;
+constexpr int32_t MAX_KEEP_LEAF_MB = 14;
 constexpr int32_t max_leaf_count = MAX_BUFFER_LEAF_MB * 1024 / 4;
 constexpr int32_t keep_leaf_count = MAX_KEEP_LEAF_MB * 1024 / 4;
+const u32 POOL_SIZE = 4;
 // #define TRAVERSE_GREATER
 
 const KeyType MIN_KEY = std::numeric_limits<KeyType>::min();
@@ -136,8 +139,11 @@ class CircleBuffer {
   std::atomic<u64> size_;
 };
 
+#ifndef COLOR_MACRO
+#define COLOR_MACRO
+#define STR(X) #X
 #define KNRM "\x1B[0m"
-#define KBOLD "\x1B[1m"
+#define KBOLD "\e[1m"
 #define KRED "\x1B[31m"
 #define KGRN "\x1B[32m"
 #define KYEL "\x1B[33m"
@@ -145,8 +151,22 @@ class CircleBuffer {
 #define KMAG "\x1B[35m"
 #define KCYN "\x1B[36m"
 #define KWHT "\x1B[37m"
+#define KBLK_GRN_ITA \
+  "\033[3;30;42m"  // #"black green italic" = black text with green background,
+                   // italic text
+#define KBLK_RED_ITA \
+  "\033[9;30;41m"  // #"black red strike" = black text with red background,
+                   // strikethrough line through the text
 #define KRESET "\033[0m"
-#define STR(X) #X
+
+// 1 = bold; 5 = slow blink; 31 = foreground color red
+// 34 = foreground color blue
+// See:
+// https://en.wikipedia.org/wiki/ANSI_escape_code#SGR_(Select_Graphic_Rendition)_parameters
+#define COLOR_BOLD_SLOW_BLINKING "\e[1;5m"
+#define COLOR_BOLD_SLOW_BLINKING_RED "\e[1;5;31m"
+#define COLOR_BOLD_BLUE "\e[1;34m"
+#endif
 
 // Macros to disable copying and moving
 #define DISALLOW_COPY(cname)     \
@@ -199,3 +219,4 @@ class CircleBuffer {
 #endif
 
 // }  // namespace BTree
+#endif
