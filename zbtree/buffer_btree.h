@@ -30,11 +30,9 @@ enum class PageType : uint8_t { BTreeInner = 1, BTreeLeaf = 2 };
 static const uint64_t pageSize = 4 * 1024;
 
 struct OptLock {
-	OptLock() : typeVersionLockObsolete(0b100) {
-	
-	}
-//   std::atomic<uint64_t> typeVersionLockObsolete{0b100};
-	std::atomic<uint64_t> typeVersionLockObsolete;
+  // std::atomic<uint64_t> typeVersionLockObsolete{0b100};
+  std::atomic_uint64_t typeVersionLockObsolete{0b100};
+	// alignas(CacheLineSize) std::atomic<uint64_t> typeVersionLockObsolete;
 
   bool isLocked(uint64_t version) { return ((version & 0b10) == 0b10); }
 
@@ -85,8 +83,7 @@ struct OptLock {
 struct NodeBase : public OptLock {
   PageType type;
   uint16_t count;
-  uint32_t access_count;
-  virtual ~NodeBase() = default;
+  virtual ~NodeBase() {}
 };
 
 struct BTreeLeafBase : public NodeBase {
@@ -109,6 +106,7 @@ struct BTreeLeaf : public BTreeLeafBase {
   // use pointer instead of array
   Key* keys;
   Payload* payloads;
+  uint32_t access_count;
 
   BTreeLeaf() {
     count = 0;
@@ -189,8 +187,8 @@ struct BTreeLeaf : public BTreeLeafBase {
   virtual ~BTreeLeaf() {
     delete[] keys;
     delete[] payloads;
-    keys = nullptr;
-    payloads = nullptr;
+    // keys = nullptr;
+    // payloads = nullptr;
     count = 0;
     access_count = 0;
   }
@@ -780,7 +778,7 @@ struct BufferBTreeImp {
  */
 template <typename Key, typename Value>
 struct BufferBTree {
-  BufferBTreeImp<Key, Value> *volatile current;
+  BufferBTreeImp<Key, Value> *current;
   std::shared_mutex mtx;
   std::shared_ptr<BTree> device_tree;
   WAL *wal_;

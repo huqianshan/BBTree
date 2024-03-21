@@ -9,7 +9,7 @@
  *
  */
 // const u32 BUFFER_POOL_SIZE = 1024 * 1024 * 16;  // in Bytes
-const u32 BUFFER_POOL_SIZE = 1024 * 1024 * 16;  // in Bytes
+const u32 BUFFER_POOL_SIZE = 1024 * 1024 * 1;  // in Bytes
 const u32 INSTANCE_SIZE = 64;
 const u32 PAGES_SIZE = BUFFER_POOL_SIZE / (INSTANCE_SIZE * PAGE_SIZE);
 

@@ -130,7 +130,7 @@ struct BTreeLeaf : public BTreeLeafBase {
   void ToGraph(std::ofstream &out, ParallelBufferPoolManager *bpm);
   virtual ~BTreeLeaf() {
     // delete[] data;
-    // data = nullptr;
+    data = nullptr;
   }
 
   void ToGraph(std::ofstream &out, void *bpm);
@@ -177,7 +177,7 @@ struct alignas(InnerNodeSize) BTreeInner : public BTreeInnerBase {
   virtual ~BTreeInner() {
     for (int i = 0; i <= count; i++) {
       delete children[i];
-      children[i] = nullptr;
+      // children[i] = nullptr;
     }
 
   }
@@ -230,8 +230,8 @@ struct KVHolder {
   ~KVHolder() {
     delete[] keys;
     delete[] values;
-    keys = nullptr;
-    values = nullptr;
+    // keys = nullptr;
+    // values = nullptr;
   }
 };
 
