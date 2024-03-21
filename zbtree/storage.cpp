@@ -58,7 +58,8 @@ offset_t DiskManager::write_n_pages(page_id_t page_id, size_t nr_pages,
   ssize_t offset = page_id * PAGE_SIZE;
   ssize_t ret = pwrite(fd_, page_data, len, offset);
   // fsync(fd_);
-  assert_msg(ret > 0, "write failed\n");
+  // assert_msg(ret > 0, "write failed\n");
+  assert_msg(ret >= 0, "write failed");
   return offset;
 }
 

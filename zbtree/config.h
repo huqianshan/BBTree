@@ -14,7 +14,7 @@
 
 #include "tsc.h"
 
-#define UNITTEST_
+// #define UNITTEST_
 #define READ_ONLY (true)
 #define WRITE_FLAG (false)
 // namespace BTree {
@@ -90,7 +90,8 @@ class Node;
 class InnerNode;
 class LeafNode;
 
-
+#ifndef COLOR_MACRO
+#define COLOR_MACRO
 #define KNRM "\x1B[0m"
 #define KBOLD "\e[1m"
 #define KRED "\x1B[31m"

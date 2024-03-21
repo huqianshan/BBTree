@@ -11,6 +11,7 @@
 class SingleWAL {
  public:
   SingleWAL(const char* wal_name, u64 length = FLUSH_SIZE);
+  SingleWAL(SingleWAL&& other);
   ~SingleWAL();
   void Append(const bytes_t* data, size_t size);
   void Append(const u64 key, const u64 val);
@@ -39,7 +40,7 @@ class WAL {
   void Print();
 
  private:
-  std::vector<SingleWAL*> wal_list_;
+  std::vector<SingleWAL> wal_list_;
   u32 num_instances_;
   std::atomic<size_t> index_;
   u32 length_;

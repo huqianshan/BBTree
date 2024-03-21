@@ -371,7 +371,7 @@ BTree::~BTree() {
   root.store(nullptr);
   // Print();
   if (bpm) {
-    // delete bpm;
+    delete (ParallelBufferPoolManager*)bpm;
     bpm = nullptr;
   }
 }

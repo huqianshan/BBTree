@@ -36,8 +36,8 @@ const u64 MILLION = 1000 * 1000;
  *
  */
 // #define RAW_BTREE_ON_FS
-// #define BBTREE_ON_EXT4_SSDD
-#define BBTREE_ON_ZNS
+#define BBTREE_ON_EXT4_SSDD
+// #define BBTREE_ON_ZNS
 
 #ifdef RAW_BTREE_ON_FS
 const std::string TREE_NAME = "BTreeBufferOnExt4SSD";
@@ -342,6 +342,7 @@ void run_test(int num_thread, string load_data, string run_data,
 }
 
 int main(int argc, char **argv) {
+  atexit(GetDRAMSpace);
 #ifndef GDB
   if (argc != 4) {
     printf("Usage: %s <workload> <threads> <size>\n", argv[0]);
@@ -424,6 +425,5 @@ int main(int argc, char **argv) {
          read_amplification_zone, write_amplification_zone);
 #endif
   printf("Test End\n");
-  GetDRAMSpace();
   return 0;
 }

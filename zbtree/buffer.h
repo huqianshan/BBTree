@@ -372,8 +372,8 @@ class FIFOBacthReplacer {
 #define MIN_SEQ_PAGES_TO_BE_FLUSHED (4)
 #define MAX_NUMS_ZONE (1)
 // #define NO_BUFFER_POOL
-#define ZNS_BUFFER_POOL
-// #define RAW_BUFFER_POOL
+// #define ZNS_BUFFER_POOL
+#define RAW_BUFFER_POOL
 typedef std::pair<Page *, u64> Slot;
 class ZoneManager {
  public:
